@@ -117,11 +117,15 @@ class ProvenancePipelineWrapper:
 
         state.status = "AUDITING"
         self.job_store.clear_error(state)
-        payload = self.provenance.process(
-            source_path=str(rendered_master_path),
-            report_path=str(report_path),
-            publish_path=str(publish_path),
-        )
+        try:
+            payload = self.provenance.process(
+                source_path=str(rendered_master_path),
+                report_path=str(report_path),
+                publish_path=str(publish_path),
+            )
+        except Exception as exc:
+            self.job_store.mark_error(state, "AUDITING", str(exc))
+            raise
 
         state.metadata["rendered_master"] = str(rendered_master_path)
         state.metadata["c2pa_status"] = str(
