@@ -3,6 +3,10 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from flow_affiliate_ai.pipeline import AffiliatePipeline
 from flow_affiliate_ai.providers.flow.gflow_cli import GFlowCliProvider
 from flow_affiliate_ai.providers.render.ffmpeg import FfmpegRenderProvider

@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: flow-affiliate-ai
+Version: 0.4.0
+Summary: Fashion affiliate automation using Google Flow, TTS and FFmpeg
+Requires-Python: >=3.11
+Provides-Extra: tts
+Requires-Dist: edge-tts==7.2.8; extra == "tts"
+Requires-Dist: google-genai<3,>=2.10; extra == "tts"
+Provides-Extra: web
+Requires-Dist: fastapi<1,>=0.116; extra == "web"
+Requires-Dist: uvicorn<1,>=0.35; extra == "web"
+Requires-Dist: python-multipart<1,>=0.0.20; extra == "web"
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8; extra == "dev"
+Requires-Dist: httpx<1,>=0.28; extra == "dev"

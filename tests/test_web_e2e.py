@@ -82,9 +82,9 @@ def _wait_until_finished(client: TestClient, job_id: str):
         response = client.get(f"/api/jobs/{job_id}")
         assert response.status_code == 200
         last = response.json()
-        if not last["running"]:
+        if not last["running"] and last["status"] != "QUEUED":
             return last
-        time.sleep(0.01)
+        time.sleep(0.05)
     raise AssertionError(f"job did not finish: {last}")
 
 

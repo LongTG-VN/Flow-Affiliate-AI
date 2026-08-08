@@ -1,0 +1,3 @@
+[console_scripts]
+flow-affiliate = flow_affiliate_ai.cli:main
+flow-affiliate-web = flow_affiliate_ai.web.app:main

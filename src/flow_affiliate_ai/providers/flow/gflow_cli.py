@@ -172,8 +172,8 @@ class GFlowCliProvider:
             [
                 "--model", request.model,
                 "--aspect", request.aspect_ratio,
-                "--count", "1",
-                "--output", str(output_path),
+                "--count", "2",
+                "--out", str(output_path.parent),
                 *self._profile_args(),
             ]
         )
@@ -211,9 +211,28 @@ class GFlowCliProvider:
             self._write_state(request.job_id, state)
             raise GFlowCliProviderError(message)
         if not output_path.is_file():
-            state.update(status="FAILED", error_message="no image produced", finished_at=_utc_now())
-            self._write_state(request.job_id, state)
-            raise GFlowCliProviderError("gflow image completed but output file was not produced")
+            candidates = [
+                p for p in output_path.parent.glob("*")
+                if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                and not p.name.startswith(".")
+            ]
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            if candidates:
+                target_img = candidates[0]
+                if target_img.suffix.lower() != output_path.suffix.lower():
+                    try:
+                        from PIL import Image
+                        with Image.open(target_img) as im:
+                            im.save(output_path)
+                        target_img.unlink(missing_ok=True)
+                    except Exception:
+                        shutil.move(str(target_img), str(output_path))
+                else:
+                    shutil.move(str(target_img), str(output_path))
+            else:
+                state.update(status="FAILED", error_message="no image produced", finished_at=_utc_now())
+                self._write_state(request.job_id, state)
+                raise GFlowCliProviderError("gflow image completed but output file was not produced")
 
         state.update(status="COMPLETED", finished_at=_utc_now())
         self._write_state(request.job_id, state)
@@ -259,7 +278,6 @@ class GFlowCliProvider:
                 "--aspect", request.aspect_ratio,
                 "--model", FLOW_DEFAULT_MODEL,
                 "--duration", str(request.duration_seconds),
-                "--count", str(FLOW_OUTPUT_COUNT),
                 "--out-dir", str(out_dir),
                 *self._profile_args(),
             ]

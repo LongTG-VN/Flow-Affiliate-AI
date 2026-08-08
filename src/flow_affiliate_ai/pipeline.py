@@ -254,15 +254,15 @@ class AffiliatePipeline:
             )
         if style not in PRODUCT_VIDEO_PROMPTS:
             raise AffiliatePipelineError(f"unknown product video style: {style}")
-        if not state.isolated_product_image:
-            raise AffiliatePipelineError("isolated product image is missing")
+        if not state.character_wear_image:
+            raise AffiliatePipelineError("character wearing product image is missing")
 
         provider_job_id = f"{state.job_id}-product-{style}-a{state.product_video_attempt}"
         try:
             ref = self.flow.generate_video(
                 job_id=provider_job_id,
                 prompt=prompt,
-                image_path=state.isolated_product_image,
+                image_path=state.character_wear_image,
                 duration_seconds=10,
                 output_directory=str(
                     workspace / "clips" / f"product-{style}-a{state.product_video_attempt}"

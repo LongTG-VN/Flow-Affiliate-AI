@@ -26,9 +26,9 @@ def test_image_i2i_builds_expected_gflow_command(tmp_path, monkeypatch):
 
     def fake_run(command, **_kwargs):
         captured["command"] = command
-        target = Path(command[command.index("--output") + 1])
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"generated")
+        target_dir = Path(command[command.index("--out") + 1])
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "generated.png").write_bytes(b"generated")
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -126,9 +126,9 @@ def test_duplicate_completed_image_is_idempotent(tmp_path, monkeypatch):
     def fake_run(command, **_kwargs):
         nonlocal calls
         calls += 1
-        target = Path(command[command.index("--output") + 1])
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"generated")
+        target_dir = Path(command[command.index("--out") + 1])
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "generated.png").write_bytes(b"generated")
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
