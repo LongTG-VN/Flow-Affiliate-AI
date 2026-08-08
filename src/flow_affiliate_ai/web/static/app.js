@@ -13,6 +13,9 @@ const jobLabel = document.getElementById('jobLabel');
 const healthBadge = document.getElementById('healthBadge');
 const healthButton = document.getElementById('healthButton');
 const productVideoStyle = document.getElementById('productVideoStyle');
+const productVideoSource = document.getElementById('productVideoSource');
+const overlayPosition = document.getElementById('overlayPosition');
+const overlayWidthPct = document.getElementById('overlayWidthPct');
 
 const promptFields = {
   extract_product: document.getElementById('extractProductPrompt'),
@@ -36,7 +39,11 @@ const stepDefs = [
 
 function previewFile(input, image) {
   const file = input.files?.[0];
-  if (!file) return;
+  if (!file) {
+    image.removeAttribute('src');
+    image.classList.remove('visible');
+    return;
+  }
   image.src = URL.createObjectURL(file);
   image.classList.add('visible');
 }
@@ -46,6 +53,9 @@ document.getElementById('character').addEventListener('change', (e) => {
 });
 document.getElementById('product').addEventListener('change', (e) => {
   previewFile(e.target, document.getElementById('productPreview'));
+});
+document.getElementById('sticker').addEventListener('change', (e) => {
+  previewFile(e.target, document.getElementById('stickerPreview'));
 });
 
 function setPromptValues(prompts) {
@@ -158,10 +168,18 @@ function renderFinal(job) {
   downloadFinal.href = `${url}?download=true`;
 }
 
+function restoreJobOptions(job) {
+  setPromptValues(job.prompts || {});
+  const options = job.render_options || {};
+  if (options.product_video_source) productVideoSource.value = options.product_video_source;
+  if (options.overlay_position) overlayPosition.value = options.overlay_position;
+  if (options.overlay_width_pct) overlayWidthPct.value = options.overlay_width_pct;
+}
+
 function renderJob(job) {
   jobLabel.textContent = job.job_id || 'Chưa có job';
-  if (job.prompts && job.job_id && restoredPromptJobId !== job.job_id) {
-    setPromptValues(job.prompts);
+  if (job.job_id && restoredPromptJobId !== job.job_id) {
+    restoreJobOptions(job);
     restoredPromptJobId = job.job_id;
   }
   renderProgress(job);

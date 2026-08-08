@@ -10,6 +10,9 @@ from typing import List
 from .base import MediaProbe, RenderJobRef, RenderManifest, ValidationResult
 
 
+OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right", "center"}
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -29,6 +32,18 @@ def _filter_escape(path: Path) -> str:
 def _tail(text: str, lines: int = 40) -> str:
     rows = text.strip().splitlines()
     return "\n".join(rows[-lines:])
+
+
+def _overlay_xy(position: str, margin: int) -> tuple[str, str]:
+    if position == "top-left":
+        return str(margin), str(margin)
+    if position == "top-right":
+        return f"W-w-{margin}", str(margin)
+    if position == "bottom-left":
+        return str(margin), f"H-h-{margin}"
+    if position == "center":
+        return "(W-w)/2", "(H-h)/2"
+    return f"W-w-{margin}", f"H-h-{margin}"
 
 
 class FfmpegRenderProvider:
@@ -63,9 +78,16 @@ class FfmpegRenderProvider:
             ("voice", manifest.voice_track),
             ("music", manifest.music_track),
             ("captions", manifest.captions_ass),
+            ("overlay", manifest.overlay_image),
         ):
             if path and not Path(path).is_file():
                 errors.append(f"{label} missing: {path}")
+        if manifest.overlay_position not in OVERLAY_POSITIONS:
+            errors.append(f"invalid overlay position: {manifest.overlay_position}")
+        if not 1 <= float(manifest.overlay_width_pct) <= 50:
+            errors.append("overlay width must be between 1 and 50 percent")
+        if manifest.overlay_margin_px < 0:
+            errors.append("overlay margin cannot be negative")
         return ValidationResult(not errors, errors)
 
     def probe(self, output: Path) -> MediaProbe:
@@ -145,16 +167,31 @@ class FfmpegRenderProvider:
         # video remains the stream that decides `-shortest`.
         audio_target = video_duration + 1.0
         cmd = [self.ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(concat)]
+        next_index = 1
         voice_index = None
         music_index = None
+        silence_index = None
+        overlay_index = None
+
         if manifest.voice_track:
-            voice_index = 1
+            voice_index = next_index
+            next_index += 1
             cmd += ["-i", str(Path(manifest.voice_track).resolve())]
         if manifest.music_track:
-            music_index = 1 + int(voice_index is not None)
+            music_index = next_index
+            next_index += 1
             cmd += ["-stream_loop", "-1", "-i", str(Path(manifest.music_track).resolve())]
         if voice_index is None and music_index is None:
+            silence_index = next_index
+            next_index += 1
             cmd += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+        if manifest.overlay_image:
+            overlay_index = next_index
+            cmd += [
+                "-loop", "1",
+                "-framerate", str(manifest.fps),
+                "-i", str(Path(manifest.overlay_image).resolve()),
+            ]
 
         width, height = map(int, manifest.resolution)
         video_filters = [
@@ -165,7 +202,17 @@ class FfmpegRenderProvider:
         ]
         if manifest.captions_ass:
             video_filters.append(f"ass=filename='{_filter_escape(Path(manifest.captions_ass))}'")
-        filters = [f"[0:v]{','.join(video_filters)}[vout]"]
+
+        filters: list[str] = []
+        base_label = "vbase" if overlay_index is not None else "vout"
+        filters.append(f"[0:v]{','.join(video_filters)}[{base_label}]")
+        if overlay_index is not None:
+            overlay_width = max(1, round(width * float(manifest.overlay_width_pct) / 100.0))
+            x, y = _overlay_xy(manifest.overlay_position, manifest.overlay_margin_px)
+            filters += [
+                f"[{overlay_index}:v]scale={overlay_width}:-1,format=rgba[overlayimg]",
+                f"[vbase][overlayimg]overlay=x={x}:y={y}:shortest=1:format=auto[vout]",
+            ]
 
         finite_audio = f"apad=whole_dur={audio_target:.3f},atrim=duration={audio_target:.3f}"
         finite_stream = f"atrim=duration={audio_target:.3f}"
@@ -185,7 +232,7 @@ class FfmpegRenderProvider:
             )
         else:
             filters.append(
-                f"[1:a]{finite_stream},alimiter=limit=0.95[aout]"
+                f"[{silence_index}:a]{finite_stream},alimiter=limit=0.95[aout]"
             )
 
         codec = {"h264": "libx264", "h265": "libx265", "hevc": "libx265"}.get(

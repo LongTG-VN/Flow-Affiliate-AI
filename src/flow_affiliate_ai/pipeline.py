@@ -15,6 +15,10 @@ from flow_affiliate_ai.prompts.fashion import (
 from flow_affiliate_ai.services.core import FlowService, RenderService, VoiceService
 
 
+PRODUCT_VIDEO_SOURCES = {"worn", "isolated"}
+OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right", "center"}
+
+
 class AffiliatePipelineError(RuntimeError):
     pass
 
@@ -89,6 +93,7 @@ class AffiliatePipeline:
         character_image: str,
         product_image: str,
         prompts: dict[str, str],
+        product_video_source: str,
     ) -> AffiliateJobState:
         character = self._require_input(character_image, "character image")
         product = self._require_input(product_image, "product image")
@@ -98,11 +103,20 @@ class AffiliatePipeline:
                 raise AffiliatePipelineError("job character image cannot be changed")
             if Path(existing.product_image).resolve() != Path(product).resolve():
                 raise AffiliatePipelineError("job product image cannot be changed")
-            if existing.prompts and existing.prompts != prompts:
+            if existing.product_video_source != product_video_source:
                 raise AffiliatePipelineError(
-                    "job prompts cannot be changed after generation has started; create a new job"
+                    "job product video source cannot be changed after generation has started"
                 )
-            if not existing.prompts:
+            if existing.prompts:
+                for key, saved_prompt in existing.prompts.items():
+                    if key in prompts and prompts[key] != saved_prompt:
+                        raise AffiliatePipelineError(
+                            "job prompts cannot be changed after generation has started; create a new job"
+                        )
+                if set(existing.prompts) != set(prompts):
+                    existing.prompts.update(prompts)
+                    self.job_store.save(existing)
+            else:
                 existing.prompts = dict(prompts)
                 self.job_store.save(existing)
             return existing
@@ -111,6 +125,7 @@ class AffiliatePipeline:
             character_image=character,
             product_image=product,
             prompts=dict(prompts),
+            product_video_source=product_video_source,
         )
         self.job_store.save(state)
         return state
@@ -238,6 +253,7 @@ class AffiliatePipeline:
         *,
         style: str,
         prompt: str,
+        source: str,
         approve_video_credits: bool,
         approve_paid_retry: bool,
         max_credit_per_video: int,
@@ -254,18 +270,26 @@ class AffiliatePipeline:
             )
         if style not in PRODUCT_VIDEO_PROMPTS:
             raise AffiliatePipelineError(f"unknown product video style: {style}")
-        if not state.character_wear_image:
-            raise AffiliatePipelineError("character wearing product image is missing")
+        if source not in PRODUCT_VIDEO_SOURCES:
+            raise AffiliatePipelineError(f"unknown product video source: {source}")
 
-        provider_job_id = f"{state.job_id}-product-{style}-a{state.product_video_attempt}"
+        source_path = (
+            state.character_wear_image if source == "worn" else state.isolated_product_image
+        )
+        if not source_path or not Path(source_path).is_file():
+            raise AffiliatePipelineError(f"product video source is missing: {source}")
+
+        provider_job_id = (
+            f"{state.job_id}-product-{style}-{source}-a{state.product_video_attempt}"
+        )
         try:
             ref = self.flow.generate_video(
                 job_id=provider_job_id,
                 prompt=prompt,
-                image_path=state.character_wear_image,
+                image_path=source_path,
                 duration_seconds=10,
                 output_directory=str(
-                    workspace / "clips" / f"product-{style}-a{state.product_video_attempt}"
+                    workspace / "clips" / f"product-{style}-{source}-a{state.product_video_attempt}"
                 ),
                 max_credit_cost=max_credit_per_video,
             )
@@ -308,6 +332,9 @@ class AffiliatePipeline:
         *,
         music_track: Optional[str],
         captions_ass: Optional[str],
+        overlay_image: Optional[str],
+        overlay_position: str,
+        overlay_width_pct: float,
     ) -> None:
         if state.final_video and Path(state.final_video).is_file():
             return
@@ -319,12 +346,18 @@ class AffiliatePipeline:
         resolved_captions = None
         if captions_ass:
             resolved_captions = self._require_input(captions_ass, "captions ASS")
+        resolved_overlay = None
+        if overlay_image:
+            resolved_overlay = self._require_input(overlay_image, "overlay image")
         result = self.render.render_vertical(
             job_id=state.job_id,
             clip_paths=[state.character_video, state.product_video],
             voice_track=state.voice_audio,
             music_track=resolved_music,
             captions_ass=resolved_captions,
+            overlay_image=resolved_overlay,
+            overlay_position=overlay_position,
+            overlay_width_pct=overlay_width_pct,
             output_path=str(workspace / "renders" / "final_video.mp4"),
         )
         if result.status != "COMPLETED" or not result.master_output_path:
@@ -346,8 +379,12 @@ class AffiliatePipeline:
         voice_script: str = DEFAULT_VOICE_SCRIPT,
         voice: str = "Zephyr",
         product_video_style: str = "zoom",
+        product_video_source: str = "worn",
         music_track: Optional[str] = None,
         captions_ass: Optional[str] = None,
+        overlay_image: Optional[str] = None,
+        overlay_position: str = "bottom-right",
+        overlay_width_pct: float = 16.0,
         approve_video_credits: bool = False,
         approve_paid_retry: bool = False,
         max_credit_per_video: int = 15,
@@ -356,29 +393,57 @@ class AffiliatePipeline:
             raise AffiliatePipelineError(
                 f"unknown product video style: {product_video_style}"
             )
+        if product_video_source not in PRODUCT_VIDEO_SOURCES:
+            raise AffiliatePipelineError(
+                f"unknown product video source: {product_video_source}"
+            )
+        if overlay_position not in OVERLAY_POSITIONS:
+            raise AffiliatePipelineError(f"unknown overlay position: {overlay_position}")
+        if not 1 <= float(overlay_width_pct) <= 50:
+            raise AffiliatePipelineError("overlay width must be between 1 and 50 percent")
+
+        existing = self.job_store.load(job_id)
+
+        def effective_prompt(key: str, value: Optional[str], default: str, label: str) -> str:
+            # When resuming an older job, omitted prompts mean "reuse what the job
+            # already saved", not "upgrade to whatever the current code default is".
+            if existing and value is None and existing.prompts.get(key):
+                return existing.prompts[key]
+            return self._resolve_prompt(value, default, label)
+
         prompts = {
-            "extract_product": self._resolve_prompt(
+            "extract_product": effective_prompt(
+                "extract_product",
                 extract_product_prompt,
                 EXTRACT_PRODUCT_PROMPT,
                 "extract product prompt",
             ),
-            "wear_product": self._resolve_prompt(
+            "wear_product": effective_prompt(
+                "wear_product",
                 wear_product_prompt,
                 WEAR_PRODUCT_PROMPT,
                 "wear product prompt",
             ),
-            "character_video": self._resolve_prompt(
+            "character_video": effective_prompt(
+                "character_video",
                 character_video_prompt,
                 character_video_attempt(3).prompt,
                 "character video prompt",
             ),
-            "product_video": self._resolve_prompt(
+            "product_video": effective_prompt(
+                "product_video",
                 product_video_prompt,
                 PRODUCT_VIDEO_PROMPTS[product_video_style],
                 "product video prompt",
             ),
         }
-        state = self._load_or_create(job_id, character_image, product_image, prompts)
+        state = self._load_or_create(
+            job_id,
+            character_image,
+            product_image,
+            prompts,
+            product_video_source,
+        )
         workspace = self._workspace(job_id)
         try:
             self._extract_product(
@@ -404,6 +469,7 @@ class AffiliatePipeline:
                 workspace,
                 style=product_video_style,
                 prompt=prompts["product_video"],
+                source=product_video_source,
                 approve_video_credits=approve_video_credits,
                 approve_paid_retry=approve_paid_retry,
                 max_credit_per_video=max_credit_per_video,
@@ -419,6 +485,9 @@ class AffiliatePipeline:
                 workspace,
                 music_track=music_track,
                 captions_ass=captions_ass,
+                overlay_image=overlay_image,
+                overlay_position=overlay_position,
+                overlay_width_pct=overlay_width_pct,
             )
             return asdict(state)
         except Exception as exc:

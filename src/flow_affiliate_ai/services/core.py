@@ -112,6 +112,10 @@ class RenderService:
         voice_track: Optional[str] = None,
         music_track: Optional[str] = None,
         captions_ass: Optional[str] = None,
+        overlay_image: Optional[str] = None,
+        overlay_position: str = "bottom-right",
+        overlay_width_pct: float = 16.0,
+        overlay_margin_px: int = 24,
     ):
         clips = [
             ClipInput(clip_id=f"clip-{index + 1}", path=path)
@@ -124,6 +128,10 @@ class RenderService:
                 voice_track=voice_track,
                 music_track=music_track,
                 captions_ass=captions_ass,
+                overlay_image=overlay_image,
+                overlay_position=overlay_position,
+                overlay_width_pct=overlay_width_pct,
+                overlay_margin_px=overlay_margin_px,
                 output_path=output_path,
             )
         )

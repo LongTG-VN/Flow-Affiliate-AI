@@ -21,6 +21,7 @@ class FakeFlowProvider:
         self.outputs = {}
         self.image_prompts = []
         self.video_prompts = []
+        self.video_refs = []
 
     def capabilities(self):
         return ProviderCapabilities()
@@ -41,6 +42,7 @@ class FakeFlowProvider:
 
     def submit(self, request):
         self.video_prompts.append(request.prompt)
+        self.video_refs.append(list(request.reference_paths))
         out = Path(request.output_directory) / f"{request.job_id}.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"fake-video")
@@ -133,6 +135,7 @@ def test_end_to_end_pipeline_produces_final_video(tmp_path):
     assert Path(result["product_video"]).is_file()
     assert Path(result["voice_audio"]).is_file()
     assert Path(result["final_video"]).is_file()
+    assert result["product_video_source"] == "worn"
     assert set(result["prompts"]) == {
         "extract_product",
         "wear_product",
@@ -209,5 +212,67 @@ def test_pipeline_rejects_prompt_changes_for_existing_job(tmp_path):
             character_image=str(character),
             product_image=str(product),
             extract_product_prompt="SECOND EXTRACT",
+            approve_video_credits=True,
+        )
+
+
+def test_resume_without_prompt_override_reuses_saved_prompt(tmp_path):
+    character, product = _inputs(tmp_path)
+    pipeline = _pipeline(tmp_path)
+
+    first = pipeline.run(
+        job_id="job-old-default",
+        character_image=str(character),
+        product_image=str(product),
+        extract_product_prompt="SAVED OLD DEFAULT",
+        approve_video_credits=True,
+    )
+    assert first["prompts"]["extract_product"] == "SAVED OLD DEFAULT"
+
+    second = pipeline.run(
+        job_id="job-old-default",
+        character_image=str(character),
+        product_image=str(product),
+        approve_video_credits=True,
+    )
+    assert second["prompts"]["extract_product"] == "SAVED OLD DEFAULT"
+
+
+def test_product_video_can_use_isolated_product_reference(tmp_path):
+    character, product = _inputs(tmp_path)
+    pipeline = _pipeline(tmp_path)
+    provider = pipeline.flow.provider
+
+    result = pipeline.run(
+        job_id="job-isolated-detail",
+        character_image=str(character),
+        product_image=str(product),
+        product_video_source="isolated",
+        approve_video_credits=True,
+    )
+
+    assert result["product_video_source"] == "isolated"
+    assert provider.video_refs[0] == [result["character_wear_image"]]
+    assert provider.video_refs[1] == [result["isolated_product_image"]]
+
+
+def test_product_video_source_is_locked_after_job_creation(tmp_path):
+    character, product = _inputs(tmp_path)
+    pipeline = _pipeline(tmp_path)
+
+    pipeline.run(
+        job_id="job-source-lock",
+        character_image=str(character),
+        product_image=str(product),
+        product_video_source="worn",
+        approve_video_credits=True,
+    )
+
+    with pytest.raises(AffiliatePipelineError, match="product video source cannot be changed"):
+        pipeline.run(
+            job_id="job-source-lock",
+            character_image=str(character),
+            product_image=str(product),
+            product_video_source="isolated",
             approve_video_credits=True,
         )
