@@ -33,6 +33,7 @@ from flow_affiliate_ai.prompts.fashion import (
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+ALLOWED_AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
 JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$")
 ASSET_FIELDS = {
     "isolated_product": "isolated_product_image",
@@ -57,6 +58,7 @@ class WebJobConfig:
     voice: str = "Zephyr"
     product_video_style: str = "zoom"
     product_video_source: str = "worn"
+    music_track: Optional[str] = None
     overlay_image: Optional[str] = None
     overlay_position: str = "bottom-right"
     overlay_width_pct: float = 22.0
@@ -135,6 +137,7 @@ class JobRunner:
                 voice=config.voice,
                 product_video_style=config.product_video_style,
                 product_video_source=config.product_video_source,
+                music_track=config.music_track,
                 overlay_image=config.overlay_image,
                 overlay_position=config.overlay_position,
                 overlay_width_pct=config.overlay_width_pct,
@@ -168,10 +171,16 @@ def _prompt_value(value: Optional[str], default: str, label: str) -> str:
     return prompt
 
 
-async def _save_upload(upload: UploadFile, directory: Path, stem: str) -> str:
+async def _save_upload(
+    upload: UploadFile,
+    directory: Path,
+    stem: str,
+    allowed_suffixes: set[str] = ALLOWED_IMAGE_SUFFIXES,
+) -> str:
     suffix = Path(upload.filename or "").suffix.lower()
-    if suffix not in ALLOWED_IMAGE_SUFFIXES:
-        raise HTTPException(status_code=400, detail="only png, jpg, jpeg and webp are accepted")
+    if suffix not in allowed_suffixes:
+        accepted = ", ".join(sorted(allowed_suffixes))
+        raise HTTPException(status_code=400, detail=f"only {accepted} files are accepted")
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{stem}{suffix}"
     temp = directory / f".{stem}{suffix}.tmp"
@@ -181,7 +190,7 @@ async def _save_upload(upload: UploadFile, directory: Path, stem: str) -> str:
             while chunk := await upload.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_IMAGE_BYTES:
-                    raise HTTPException(status_code=413, detail="image exceeds 20 MB")
+                    raise HTTPException(status_code=413, detail="upload exceeds 20 MB")
                 handle.write(chunk)
         if size == 0:
             raise HTTPException(status_code=400, detail="empty upload")
@@ -238,6 +247,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         character: UploadFile = File(...),
         product: UploadFile = File(...),
         sticker: Optional[UploadFile] = File(None),
+        music: Optional[UploadFile] = File(None),
         job_id: Optional[str] = Form(None),
         extract_product_prompt: Optional[str] = Form(None),
         wear_product_prompt: Optional[str] = Form(None),
@@ -248,7 +258,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         product_video_style: str = Form("zoom"),
         product_video_source: str = Form("worn"),
         overlay_position: str = Form("bottom-right"),
-        overlay_width_pct: float = Form(16.0),
+        overlay_width_pct: float = Form(22.0),
         max_credit_per_video: int = Form(15),
         approve_video_credits: bool = Form(False),
     ) -> dict:
@@ -301,6 +311,14 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
                 overlay_path = await _save_upload(sticker, upload_dir, "sticker")
             else:
                 await sticker.close()
+        music_path = None
+        if music is not None:
+            if music.filename:
+                music_path = await _save_upload(
+                    music, upload_dir, "music", allowed_suffixes=ALLOWED_AUDIO_SUFFIXES
+                )
+            else:
+                await music.close()
 
         config = WebJobConfig(
             job_id=resolved_id,
@@ -314,6 +332,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
             voice=voice.strip() or "Zephyr",
             product_video_style=product_video_style,
             product_video_source=product_video_source,
+            music_track=music_path,
             overlay_image=overlay_path,
             overlay_position=overlay_position,
             overlay_width_pct=overlay_width_pct,
@@ -335,6 +354,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         if config:
             payload["render_options"] = {
                 "product_video_source": config.product_video_source,
+                "music_enabled": bool(config.music_track),
                 "overlay_enabled": bool(config.overlay_image),
                 "overlay_position": config.overlay_position,
                 "overlay_width_pct": config.overlay_width_pct,

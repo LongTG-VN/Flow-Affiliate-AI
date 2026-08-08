@@ -57,6 +57,15 @@ document.getElementById('product').addEventListener('change', (e) => {
 document.getElementById('sticker').addEventListener('change', (e) => {
   previewFile(e.target, document.getElementById('stickerPreview'));
 });
+document.getElementById('music').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  const label = document.getElementById('musicLabel');
+  if (file) {
+    label.innerHTML = `<strong>🎵 Đã chọn:</strong> ${file.name} (Trộn nhỏ 18% volume)`;
+  } else {
+    label.textContent = 'MP3 / WAV / M4A / AAC · Tự động trộn âm lượng nhỏ (18%) không lấn giọng đọc.';
+  }
+});
 
 function setPromptValues(prompts) {
   Object.entries(promptFields).forEach(([key, field]) => {

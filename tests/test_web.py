@@ -143,10 +143,40 @@ def test_dashboard_persists_sticker_and_product_source(tmp_path: Path):
     assert job.status_code == 200
     assert job.json()["render_options"] == {
         "product_video_source": "isolated",
+        "music_enabled": False,
         "overlay_enabled": True,
         "overlay_position": "top-right",
         "overlay_width_pct": 22.0,
     }
+
+
+def test_dashboard_persists_music_track(tmp_path: Path):
+    app = create_app(data_root=tmp_path, pipeline_builder=_builder)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "job_id": "job-music-1",
+            "approve_video_credits": "true",
+        },
+        files={
+            "character": ("character.png", b"fake-character", "image/png"),
+            "product": ("product.png", b"fake-product", "image/png"),
+            "music": ("bgm.mp3", b"fake-audio-data", "audio/mp3"),
+        },
+    )
+
+    assert response.status_code == 202
+    config = app.state.runner.configs.load("job-music-1")
+    assert config is not None
+    assert config.music_track is not None
+    assert Path(config.music_track).name == "music.mp3"
+    assert Path(config.music_track).read_bytes() == b"fake-audio-data"
+
+    job = client.get("/api/jobs/job-music-1")
+    assert job.status_code == 200
+    assert job.json()["render_options"]["music_enabled"] is True
 
 
 def test_rejects_empty_prompt(tmp_path: Path):
