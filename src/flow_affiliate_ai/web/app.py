@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from flow_affiliate_ai.cli import build_pipeline
 from flow_affiliate_ai.jobs import JobStore
+from flow_affiliate_ai.pipeline import OVERLAY_POSITIONS, PRODUCT_VIDEO_SOURCES
 from flow_affiliate_ai.prompts.fashion import (
     EXTRACT_PRODUCT_PROMPT,
     MAX_PROMPT_CHARS,
@@ -55,6 +56,10 @@ class WebJobConfig:
     tts_provider: str = "gemini"
     voice: str = "Zephyr"
     product_video_style: str = "zoom"
+    product_video_source: str = "worn"
+    overlay_image: Optional[str] = None
+    overlay_position: str = "bottom-right"
+    overlay_width_pct: float = 16.0
     max_credit_per_video: int = 15
 
     @property
@@ -129,6 +134,10 @@ class JobRunner:
                 product_video_prompt=config.product_video_prompt,
                 voice=config.voice,
                 product_video_style=config.product_video_style,
+                product_video_source=config.product_video_source,
+                overlay_image=config.overlay_image,
+                overlay_position=config.overlay_position,
+                overlay_width_pct=config.overlay_width_pct,
                 approve_video_credits=True,
                 approve_paid_retry=approve_retry,
                 max_credit_per_video=config.max_credit_per_video,
@@ -199,7 +208,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
     data_root = data_root.resolve()
     static_dir = Path(__file__).parent / "static"
     runner = JobRunner(data_root, pipeline_builder)
-    app = FastAPI(title="Flow Affiliate AI", version="0.4.0")
+    app = FastAPI(title="Flow Affiliate AI", version="0.5.0")
     app.state.runner = runner
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -228,6 +237,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
     async def create_job(
         character: UploadFile = File(...),
         product: UploadFile = File(...),
+        sticker: Optional[UploadFile] = File(None),
         job_id: Optional[str] = Form(None),
         extract_product_prompt: Optional[str] = Form(None),
         wear_product_prompt: Optional[str] = Form(None),
@@ -236,6 +246,9 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         tts_provider: str = Form("gemini"),
         voice: str = Form("Zephyr"),
         product_video_style: str = Form("zoom"),
+        product_video_source: str = Form("worn"),
+        overlay_position: str = Form("bottom-right"),
+        overlay_width_pct: float = Form(16.0),
         max_credit_per_video: int = Form(15),
         approve_video_credits: bool = Form(False),
     ) -> dict:
@@ -243,6 +256,12 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
             raise HTTPException(status_code=400, detail="Flow video credit approval is required")
         if tts_provider not in {"gemini", "edge"} or product_video_style not in {"zoom", "pan"}:
             raise HTTPException(status_code=400, detail="invalid generation option")
+        if product_video_source not in PRODUCT_VIDEO_SOURCES:
+            raise HTTPException(status_code=400, detail="invalid product video source")
+        if overlay_position not in OVERLAY_POSITIONS:
+            raise HTTPException(status_code=400, detail="invalid overlay position")
+        if not 1 <= overlay_width_pct <= 50:
+            raise HTTPException(status_code=400, detail="overlay width must be between 1 and 50 percent")
         if not 0 <= max_credit_per_video <= 1000:
             raise HTTPException(status_code=400, detail="invalid credit ceiling")
 
@@ -276,6 +295,13 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         upload_dir = data_root / "uploads" / resolved_id
         character_path = await _save_upload(character, upload_dir, "character")
         product_path = await _save_upload(product, upload_dir, "product")
+        overlay_path = None
+        if sticker is not None:
+            if sticker.filename:
+                overlay_path = await _save_upload(sticker, upload_dir, "sticker")
+            else:
+                await sticker.close()
+
         config = WebJobConfig(
             job_id=resolved_id,
             character_image=character_path,
@@ -287,6 +313,10 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
             tts_provider=tts_provider,
             voice=voice.strip() or "Zephyr",
             product_video_style=product_video_style,
+            product_video_source=product_video_source,
+            overlay_image=overlay_path,
+            overlay_position=overlay_position,
+            overlay_width_pct=overlay_width_pct,
             max_credit_per_video=max_credit_per_video,
         )
         runner.submit(config)
@@ -302,6 +332,13 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         payload["running"] = runner.running(job_id)
         payload["web_error"] = runner.error(job_id)
         payload["prompts"] = config.prompts if config else payload.get("prompts", {})
+        if config:
+            payload["render_options"] = {
+                "product_video_source": config.product_video_source,
+                "overlay_enabled": bool(config.overlay_image),
+                "overlay_position": config.overlay_position,
+                "overlay_width_pct": config.overlay_width_pct,
+            }
         payload["assets"] = {}
         if state:
             for kind, field_name in ASSET_FIELDS.items():
