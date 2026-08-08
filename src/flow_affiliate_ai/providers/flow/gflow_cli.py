@@ -22,7 +22,7 @@ from .base import (
 
 FLOW_ALLOWED_DURATIONS = (4, 6, 8, 10)
 FLOW_DEFAULT_MODEL = "omni-flash"
-FLOW_OUTPUT_COUNT = 1
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class GFlowCliProviderError(RuntimeError):
@@ -31,6 +31,13 @@ class GFlowCliProviderError(RuntimeError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 class GFlowCliProvider:
@@ -45,11 +52,12 @@ class GFlowCliProvider:
         self.profile = profile
         self.state_dir = state_dir.resolve()
         self.generation_timeout_seconds = generation_timeout_seconds
+        self.image_count = max(1, min(_env_int("GFLOW_IMAGE_COUNT", 2), 4))
         self.credit_cost_by_duration = {
-            4: int(os.getenv("GFLOW_CREDIT_COST_4S", "6")),
-            6: int(os.getenv("GFLOW_CREDIT_COST_6S", "9")),
-            8: int(os.getenv("GFLOW_CREDIT_COST_8S", "12")),
-            10: int(os.getenv("GFLOW_CREDIT_COST_10S", "15")),
+            4: _env_int("GFLOW_CREDIT_COST_4S", 6),
+            6: _env_int("GFLOW_CREDIT_COST_6S", 9),
+            8: _env_int("GFLOW_CREDIT_COST_8S", 12),
+            10: _env_int("GFLOW_CREDIT_COST_10S", 15),
         }
 
     def capabilities(self) -> ProviderCapabilities:
@@ -149,10 +157,10 @@ class GFlowCliProvider:
             self.capabilities().max_reference_images,
         )
 
-        output_path = Path(
+        requested_output = Path(
             request.output_path or f"data/images/{request.job_id}.png"
         ).resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        requested_output.parent.mkdir(parents=True, exist_ok=True)
 
         existing = self._read_state(request.job_id)
         if existing:
@@ -165,6 +173,14 @@ class GFlowCliProvider:
                 "refusing ambiguous duplicate image submission; create a new attempt"
             )
 
+        # gflow writes generated files into a directory rather than an exact filename.
+        # Each provider attempt gets an isolated directory so a successful exit can
+        # never accidentally pick an older image from another pipeline stage.
+        run_dir = requested_output.parent / ".gflow" / request.job_id
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+
         command = [executable, "image", "i2i", request.prompt.strip()]
         for ref in refs:
             command.extend(["--ref", ref])
@@ -172,8 +188,8 @@ class GFlowCliProvider:
             [
                 "--model", request.model,
                 "--aspect", request.aspect_ratio,
-                "--count", "2",
-                "--out", str(output_path.parent),
+                "--count", str(self.image_count),
+                "--out", str(run_dir),
                 *self._profile_args(),
             ]
         )
@@ -182,7 +198,8 @@ class GFlowCliProvider:
             "kind": "IMAGE_I2I",
             "idempotency_key": request.idempotency_key,
             "status": "RUNNING",
-            "output_path": str(output_path),
+            "output_path": str(requested_output),
+            "run_dir": str(run_dir),
             "command": command,
             "started_at": _utc_now(),
         }
@@ -201,42 +218,41 @@ class GFlowCliProvider:
             self._write_state(request.job_id, state)
             raise GFlowCliProviderError("gflow image timed out") from exc
 
-        log_dir = output_path.parent / f".{request.job_id}_logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        (log_dir / "stdout.log").write_text(result.stdout or "", encoding="utf-8")
-        (log_dir / "stderr.log").write_text(result.stderr or "", encoding="utf-8")
+        (run_dir / "stdout.log").write_text(result.stdout or "", encoding="utf-8")
+        (run_dir / "stderr.log").write_text(result.stderr or "", encoding="utf-8")
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "gflow image failed").strip()
             state.update(status="FAILED", error_message=message, finished_at=_utc_now())
             self._write_state(request.job_id, state)
             raise GFlowCliProviderError(message)
-        if not output_path.is_file():
-            candidates = [
-                p for p in output_path.parent.glob("*")
-                if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
-                and not p.name.startswith(".")
-            ]
-            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            if candidates:
-                target_img = candidates[0]
-                if target_img.suffix.lower() != output_path.suffix.lower():
-                    try:
-                        from PIL import Image
-                        with Image.open(target_img) as im:
-                            im.save(output_path)
-                        target_img.unlink(missing_ok=True)
-                    except Exception:
-                        shutil.move(str(target_img), str(output_path))
-                else:
-                    shutil.move(str(target_img), str(output_path))
-            else:
-                state.update(status="FAILED", error_message="no image produced", finished_at=_utc_now())
-                self._write_state(request.job_id, state)
-                raise GFlowCliProviderError("gflow image completed but output file was not produced")
 
-        state.update(status="COMPLETED", finished_at=_utc_now())
+        candidates = [
+            path
+            for path in run_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        ]
+        candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+        if not candidates:
+            state.update(status="FAILED", error_message="no image produced", finished_at=_utc_now())
+            self._write_state(request.job_id, state)
+            raise GFlowCliProviderError("gflow image completed but output file was not produced")
+
+        selected = candidates[0]
+        # Preserve the actual generated format. Renaming JPEG bytes to .png makes
+        # downstream tools and browsers disagree about the file type.
+        final_output = requested_output.with_suffix(selected.suffix.lower())
+        final_output.unlink(missing_ok=True)
+        shutil.move(str(selected), str(final_output))
+
+        state.update(
+            status="COMPLETED",
+            output_path=str(final_output),
+            generated_count=len(candidates),
+            selected_source_name=selected.name,
+            finished_at=_utc_now(),
+        )
         self._write_state(request.job_id, state)
-        return FlowImageResult(request.job_id, "COMPLETED", str(output_path))
+        return FlowImageResult(request.job_id, "COMPLETED", str(final_output))
 
     def estimate(self, request: FlowGenerationRequest) -> CostQuote:
         if request.duration_seconds not in FLOW_ALLOWED_DURATIONS:
