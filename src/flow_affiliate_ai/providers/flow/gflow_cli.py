@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -11,6 +12,8 @@ from .base import (
     CostQuote,
     FlowGenerationRequest,
     FlowHealth,
+    FlowImageGenerationRequest,
+    FlowImageResult,
     ProviderCapabilities,
     ProviderJobRef,
     ProviderJobStatus,
@@ -98,14 +101,6 @@ class GFlowCliProvider:
             message=detail or "gflow auth status completed",
         )
 
-    def estimate(self, request: FlowGenerationRequest) -> CostQuote:
-        if request.duration_seconds not in FLOW_ALLOWED_DURATIONS:
-            raise GFlowCliProviderError(
-                f"duration must be one of {FLOW_ALLOWED_DURATIONS}"
-            )
-        cost = self.credit_cost_by_duration[request.duration_seconds]
-        return CostQuote(cost, request.max_credit_cost, cost <= request.max_credit_cost)
-
     def _state_path(self, job_id: str) -> Path:
         return self.state_dir / f"{job_id}.json"
 
@@ -122,11 +117,118 @@ class GFlowCliProvider:
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
-    def submit(self, request: FlowGenerationRequest) -> ProviderJobRef:
+    def _ensure_ready(self) -> str:
         health = self.health()
         if not health.healthy:
             raise GFlowCliProviderError(f"Flow health check failed: {health.message}")
+        executable = self._resolve_executable()
+        if not executable:
+            raise GFlowCliProviderError("gflow-cli executable not found")
+        return executable
 
+    @staticmethod
+    def _validate_refs(reference_paths: List[str], max_refs: int) -> List[str]:
+        refs: List[str] = []
+        for candidate in reference_paths:
+            resolved = str(Path(candidate).resolve())
+            if resolved not in refs:
+                refs.append(resolved)
+        if len(refs) > max_refs:
+            raise GFlowCliProviderError("reference image limit exceeded")
+        for ref in refs:
+            if not Path(ref).is_file():
+                raise GFlowCliProviderError(f"reference image missing: {ref}")
+        return refs
+
+    def generate_image(self, request: FlowImageGenerationRequest) -> FlowImageResult:
+        if not request.reference_paths:
+            raise GFlowCliProviderError("affiliate image generation requires reference images")
+        executable = self._ensure_ready()
+        refs = self._validate_refs(
+            request.reference_paths,
+            self.capabilities().max_reference_images,
+        )
+
+        output_path = Path(
+            request.output_path or f"data/images/{request.job_id}.png"
+        ).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing = self._read_state(request.job_id)
+        if existing:
+            if existing.get("idempotency_key") != request.idempotency_key:
+                raise GFlowCliProviderError("job id collision")
+            prior_output = existing.get("output_path")
+            if existing.get("status") == "COMPLETED" and prior_output and Path(prior_output).is_file():
+                return FlowImageResult(request.job_id, "COMPLETED", prior_output)
+            raise GFlowCliProviderError(
+                "refusing ambiguous duplicate image submission; create a new attempt"
+            )
+
+        command = [executable, "image", "i2i", request.prompt.strip()]
+        for ref in refs:
+            command.extend(["--ref", ref])
+        command.extend(
+            [
+                "--model", request.model,
+                "--aspect", request.aspect_ratio,
+                "--count", "1",
+                "--output", str(output_path),
+                *self._profile_args(),
+            ]
+        )
+        state = {
+            "job_id": request.job_id,
+            "kind": "IMAGE_I2I",
+            "idempotency_key": request.idempotency_key,
+            "status": "RUNNING",
+            "output_path": str(output_path),
+            "command": command,
+            "started_at": _utc_now(),
+        }
+        self._write_state(request.job_id, state)
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self.generation_timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            state.update(status="FAILED", error_message="gflow image timed out", finished_at=_utc_now())
+            self._write_state(request.job_id, state)
+            raise GFlowCliProviderError("gflow image timed out") from exc
+
+        log_dir = output_path.parent / f".{request.job_id}_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "stdout.log").write_text(result.stdout or "", encoding="utf-8")
+        (log_dir / "stderr.log").write_text(result.stderr or "", encoding="utf-8")
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "gflow image failed").strip()
+            state.update(status="FAILED", error_message=message, finished_at=_utc_now())
+            self._write_state(request.job_id, state)
+            raise GFlowCliProviderError(message)
+        if not output_path.is_file():
+            state.update(status="FAILED", error_message="no image produced", finished_at=_utc_now())
+            self._write_state(request.job_id, state)
+            raise GFlowCliProviderError("gflow image completed but output file was not produced")
+
+        state.update(status="COMPLETED", finished_at=_utc_now())
+        self._write_state(request.job_id, state)
+        return FlowImageResult(request.job_id, "COMPLETED", str(output_path))
+
+    def estimate(self, request: FlowGenerationRequest) -> CostQuote:
+        if request.duration_seconds not in FLOW_ALLOWED_DURATIONS:
+            raise GFlowCliProviderError(
+                f"duration must be one of {FLOW_ALLOWED_DURATIONS}"
+            )
+        cost = self.credit_cost_by_duration[request.duration_seconds]
+        return CostQuote(cost, request.max_credit_cost, cost <= request.max_credit_cost)
+
+    def submit(self, request: FlowGenerationRequest) -> ProviderJobRef:
+        executable = self._ensure_ready()
         quote = self.estimate(request)
         if not quote.can_proceed:
             raise GFlowCliProviderError("credit ceiling exceeded")
@@ -142,24 +244,12 @@ class GFlowCliProvider:
                 "refusing ambiguous duplicate submission; create a new attempt"
             )
 
-        executable = self._resolve_executable()
-        if not executable:
-            raise GFlowCliProviderError("gflow-cli executable not found")
-
         out_dir = Path(request.output_directory or f"data/clips/{request.job_id}").resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
-
-        refs: List[str] = []
-        for candidate in [*request.reference_paths, request.start_frame_path]:
-            if candidate:
-                resolved = str(Path(candidate).resolve())
-                if resolved not in refs:
-                    refs.append(resolved)
-        if len(refs) > self.capabilities().max_reference_images:
-            raise GFlowCliProviderError("reference image limit exceeded")
-        for ref in refs:
-            if not Path(ref).is_file():
-                raise GFlowCliProviderError(f"reference image missing: {ref}")
+        refs = self._validate_refs(
+            [p for p in [*request.reference_paths, request.start_frame_path] if p],
+            self.capabilities().max_reference_images,
+        )
 
         command = [executable, "video", "r2v" if refs else "t2v", request.prompt.strip()]
         for ref in refs:
@@ -177,6 +267,7 @@ class GFlowCliProvider:
 
         state = {
             "job_id": request.job_id,
+            "kind": "VIDEO",
             "idempotency_key": request.idempotency_key,
             "status": "RUNNING",
             "started_at": _utc_now(),
@@ -220,11 +311,14 @@ class GFlowCliProvider:
         state = self._read_state(provider_job_id)
         if not state:
             return ProviderJobStatus(provider_job_id, "UNKNOWN", error_message="job not found")
+        outputs = state.get("output_paths", [])
+        if not outputs and state.get("output_path"):
+            outputs = [state["output_path"]]
         return ProviderJobStatus(
             provider_job_id=provider_job_id,
             status=state.get("status", "UNKNOWN"),
             progress_pct=100 if state.get("status") == "COMPLETED" else 0,
-            output_paths=state.get("output_paths", []),
+            output_paths=outputs,
             error_message=state.get("error_message"),
         )
 
