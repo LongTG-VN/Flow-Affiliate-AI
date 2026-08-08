@@ -50,7 +50,7 @@ class RecordingFlowProvider:
         if self.fail_character_l3_once and request.job_id.endswith("character-l3"):
             self.fail_character_l3_once = False
             raise RuntimeError("simulated L3 failure")
-        if self.fail_product_once and "-product-zoom-a" in request.job_id:
+        if self.fail_product_once and "-product-" in request.job_id:
             self.fail_product_once = False
             raise RuntimeError("simulated product failure")
         out = Path(request.output_directory) / f"{request.job_id}.mp4"
@@ -195,7 +195,7 @@ def test_product_video_failure_requires_explicit_paid_retry(tmp_path):
         approve_paid_retry=True,
     )
     assert result["status"] == "COMPLETED"
-    assert any("product-zoom-a2" in job for job in provider.video_jobs)
+    assert any("product-zoom-worn-a2" in job for job in provider.video_jobs)
 
 
 def test_image_failure_uses_new_attempt_without_repeating_completed_stages(tmp_path):
