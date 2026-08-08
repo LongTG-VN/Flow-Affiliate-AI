@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
 
+MAX_PROMPT_CHARS = 8000
+
 EXTRACT_PRODUCT_PROMPT = """Extract only the clothing product from the provided product image.
 Remove the mannequin, person, background, and all unrelated objects.
 Keep the garment design, color, pattern, proportions, and visible details accurate.
@@ -59,3 +61,14 @@ def fallback_level(current_level: int) -> int | None:
     if current_level == 2:
         return 1
     return None
+
+
+def default_prompt_payload(product_video_style: str = "zoom") -> dict[str, str]:
+    if product_video_style not in PRODUCT_VIDEO_PROMPTS:
+        raise ValueError(f"unknown product video style: {product_video_style}")
+    return {
+        "extract_product": EXTRACT_PRODUCT_PROMPT,
+        "wear_product": WEAR_PRODUCT_PROMPT,
+        "character_video": CHARACTER_VIDEO_LEVELS[3],
+        "product_video": PRODUCT_VIDEO_PROMPTS[product_video_style],
+    }
