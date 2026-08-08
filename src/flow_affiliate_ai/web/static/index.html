@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">LOCAL CREATOR TOOL</p>
         <h1>Flow Affiliate AI</h1>
-        <p class="subtitle">Ảnh nhân vật + ảnh sản phẩm → Flow → TTS → FFmpeg → video hoàn chỉnh.</p>
+        <p class="subtitle">Ảnh nhân vật + ảnh sản phẩm → 4 prompt → Flow → TTS → FFmpeg → video hoàn chỉnh.</p>
       </div>
       <div id="healthBadge" class="health neutral">Chưa kiểm tra hệ thống</div>
     </header>
@@ -39,8 +39,45 @@
             <span>Ảnh sản phẩm</span>
             <input id="product" name="product" type="file" accept="image/png,image/jpeg,image/webp" required>
             <img id="productPreview" alt="Preview sản phẩm">
-            <small>Flow sẽ tự tách sản phẩm bằng prompt cố định</small>
+            <small>Flow sẽ tách sản phẩm theo Prompt 1 bên dưới.</small>
           </label>
+        </div>
+
+        <div class="prompt-section">
+          <div class="prompt-section-head">
+            <div>
+              <span class="prompt-kicker">4 PROMPT CHÍNH</span>
+              <h3>Prompt dùng trực tiếp cho job</h3>
+              <p>Ông có thể sửa trước khi Generate. Retry sẽ giữ nguyên prompt của job. Fallback video L2/L1 vẫn do backend giữ riêng.</p>
+            </div>
+            <button id="resetPromptsButton" class="secondary" type="button">Reset prompt mặc định</button>
+          </div>
+
+          <div class="prompt-grid">
+            <label class="prompt-card">
+              <span><b>1.</b> Tách sản phẩm</span>
+              <small>Ảnh sản phẩm → ảnh sản phẩm sạch</small>
+              <textarea id="extractProductPrompt" name="extract_product_prompt" rows="9" maxlength="8000" required></textarea>
+            </label>
+
+            <label class="prompt-card">
+              <span><b>2.</b> Nhân vật mặc sản phẩm</span>
+              <small>Ảnh nhân vật + ảnh sản phẩm đã tách → ảnh mặc đồ</small>
+              <textarea id="wearProductPrompt" name="wear_product_prompt" rows="9" maxlength="8000" required></textarea>
+            </label>
+
+            <label class="prompt-card">
+              <span><b>3.</b> Video nhân vật</span>
+              <small>Ảnh nhân vật mặc đồ → character video Level 3</small>
+              <textarea id="characterVideoPrompt" name="character_video_prompt" rows="8" maxlength="8000" required></textarea>
+            </label>
+
+            <label class="prompt-card">
+              <span><b>4.</b> Video sản phẩm</span>
+              <small>Ảnh sản phẩm đã tách → product detail video</small>
+              <textarea id="productVideoPrompt" name="product_video_prompt" rows="8" maxlength="8000" required></textarea>
+            </label>
+          </div>
         </div>
 
         <div class="controls">
@@ -57,7 +94,7 @@
           </label>
           <label>
             <span>Product shot</span>
-            <select name="product_video_style">
+            <select name="product_video_style" id="productVideoStyle">
               <option value="zoom">Zoom</option>
               <option value="pan">Pan</option>
             </select>
