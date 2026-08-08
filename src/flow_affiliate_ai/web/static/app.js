@@ -116,8 +116,11 @@ function renderJob(job) {
   renderFinal(job);
   const message = job.web_error || job.error_message || '';
   setError(message);
-  const canRetry = Boolean(message) && !job.running && (job.character_video_level || 3) < 3 && !job.assets?.character_video;
+  const canRetry = Boolean(message) && !job.running && !job.assets?.final_video;
   retryButton.classList.toggle('hidden', !canRetry);
+  retryButton.textContent = (job.character_video_level || 3) < 3 && !job.assets?.character_video
+    ? 'Retry fallback có duyệt credit'
+    : 'Retry từ checkpoint';
   generateButton.disabled = Boolean(job.running);
 }
 
