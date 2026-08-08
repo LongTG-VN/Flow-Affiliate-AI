@@ -45,6 +45,10 @@ def test_dashboard_and_health(tmp_path: Path):
     assert 'name="wear_product_prompt"' in response.text
     assert 'name="character_video_prompt"' in response.text
     assert 'name="product_video_prompt"' in response.text
+    assert 'name="product_video_source"' in response.text
+    assert 'name="sticker"' in response.text
+    assert 'name="overlay_position"' in response.text
+    assert 'name="overlay_width_pct"' in response.text
 
     health = client.get("/api/health")
     assert health.status_code == 200
@@ -105,6 +109,46 @@ def test_dashboard_persists_four_custom_prompts(tmp_path: Path):
     assert job.json()["prompts"] == config.prompts
 
 
+def test_dashboard_persists_sticker_and_product_source(tmp_path: Path):
+    app = create_app(data_root=tmp_path, pipeline_builder=_builder)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "job_id": "job-overlay-1",
+            "approve_video_credits": "true",
+            "product_video_source": "isolated",
+            "overlay_position": "top-right",
+            "overlay_width_pct": "22",
+        },
+        files={
+            "character": ("character.png", b"fake-character", "image/png"),
+            "product": ("product.png", b"fake-product", "image/png"),
+            "sticker": ("sticker.webp", b"fake-sticker", "image/webp"),
+        },
+    )
+
+    assert response.status_code == 202
+    config = app.state.runner.configs.load("job-overlay-1")
+    assert config is not None
+    assert config.product_video_source == "isolated"
+    assert config.overlay_position == "top-right"
+    assert config.overlay_width_pct == 22
+    assert config.overlay_image is not None
+    assert Path(config.overlay_image).name == "sticker.webp"
+    assert Path(config.overlay_image).read_bytes() == b"fake-sticker"
+
+    job = client.get("/api/jobs/job-overlay-1")
+    assert job.status_code == 200
+    assert job.json()["render_options"] == {
+        "product_video_source": "isolated",
+        "overlay_enabled": True,
+        "overlay_position": "top-right",
+        "overlay_width_pct": 22.0,
+    }
+
+
 def test_rejects_empty_prompt(tmp_path: Path):
     app = create_app(data_root=tmp_path, pipeline_builder=_builder)
     client = TestClient(app)
@@ -133,6 +177,25 @@ def test_rejects_non_image_upload(tmp_path: Path):
         data={"approve_video_credits": "true"},
         files={
             "character": ("character.txt", b"not an image", "text/plain"),
+            "product": ("product.png", b"fake", "image/png"),
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_rejects_invalid_overlay_settings(tmp_path: Path):
+    app = create_app(data_root=tmp_path, pipeline_builder=_builder)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        data={
+            "approve_video_credits": "true",
+            "overlay_position": "outside",
+            "overlay_width_pct": "90",
+        },
+        files={
+            "character": ("character.png", b"fake", "image/png"),
             "product": ("product.png", b"fake", "image/png"),
         },
     )
