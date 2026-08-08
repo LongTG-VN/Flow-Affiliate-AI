@@ -31,6 +31,9 @@ class AffiliateJobState:
     captions_ass: Optional[str] = None
     final_video: Optional[str] = None
     character_video_level: int = 3
+    extract_attempt: int = 1
+    dress_attempt: int = 1
+    product_video_attempt: int = 1
     error_stage: Optional[str] = None
     error_message: Optional[str] = None
     metadata: Dict[str, str] = field(default_factory=dict)
