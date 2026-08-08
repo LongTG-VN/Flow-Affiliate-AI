@@ -50,7 +50,7 @@ class RecordingFlowProvider:
         if self.fail_character_l3_once and request.job_id.endswith("character-l3"):
             self.fail_character_l3_once = False
             raise RuntimeError("simulated L3 failure")
-        if self.fail_product_once and "-product-" in request.job_id:
+        if self.fail_product_once and "-product-zoom-a" in request.job_id:
             self.fail_product_once = False
             raise RuntimeError("simulated product failure")
         out = Path(request.output_directory) / f"{request.job_id}.mp4"
