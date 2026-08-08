@@ -38,13 +38,22 @@ const stepDefs = [
 ];
 
 function previewFile(input, image) {
+  const previousUrl = image.dataset.objectUrl;
+  if (previousUrl) {
+    URL.revokeObjectURL(previousUrl);
+    delete image.dataset.objectUrl;
+  }
+
   const file = input.files?.[0];
   if (!file) {
     image.removeAttribute('src');
     image.classList.remove('visible');
     return;
   }
-  image.src = URL.createObjectURL(file);
+
+  const objectUrl = URL.createObjectURL(file);
+  image.dataset.objectUrl = objectUrl;
+  image.src = objectUrl;
   image.classList.add('visible');
 }
 
@@ -61,7 +70,7 @@ document.getElementById('music').addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   const label = document.getElementById('musicLabel');
   if (file) {
-    label.innerHTML = `<strong>🎵 Đã chọn:</strong> ${file.name} (Trộn nhỏ 18% volume)`;
+    label.textContent = `🎵 Đã chọn: ${file.name} · Trộn nhỏ 18% volume`;
   } else {
     label.textContent = 'MP3 / WAV / M4A / AAC · Tự động trộn âm lượng nhỏ (18%) không lấn giọng đọc.';
   }
@@ -157,8 +166,8 @@ function renderAssets(job) {
   };
   assetGrid.innerHTML = entries.map(([key, url]) => {
     const media = key.includes('video')
-      ? `<video src="${url}?v=${Date.now()}" controls muted playsinline></video>`
-      : `<img src="${url}?v=${Date.now()}" alt="${labels[key] || key}">`;
+      ? `<video src="${url}" controls muted playsinline></video>`
+      : `<img src="${url}" alt="${labels[key] || key}">`;
     return `<article class="asset-card">${media}<div class="meta"><strong>${labels[key] || key}</strong><a href="${url}?download=true">Tải asset</a></div></article>`;
   }).join('');
 }
@@ -169,11 +178,15 @@ function renderFinal(job) {
     finalWrap.classList.add('hidden');
     finalEmpty.classList.remove('hidden');
     finalVideo.removeAttribute('src');
+    delete finalVideo.dataset.assetUrl;
     return;
   }
   finalEmpty.classList.add('hidden');
   finalWrap.classList.remove('hidden');
-  finalVideo.src = `${url}?v=${Date.now()}`;
+  if (finalVideo.dataset.assetUrl !== url) {
+    finalVideo.src = url;
+    finalVideo.dataset.assetUrl = url;
+  }
   downloadFinal.href = `${url}?download=true`;
 }
 
@@ -204,6 +217,11 @@ function renderJob(job) {
   generateButton.disabled = Boolean(job.running);
 }
 
+function schedulePoll(delayMs = 2000) {
+  clearTimeout(pollTimer);
+  if (currentJobId) pollTimer = setTimeout(pollJob, delayMs);
+}
+
 async function pollJob() {
   if (!currentJobId) return;
   try {
@@ -214,18 +232,23 @@ async function pollJob() {
         currentJobId = null;
         restoredPromptJobId = null;
         await loadDefaultPrompts();
+        return;
       }
+      const payload = await response.json().catch(() => ({}));
+      setError(payload.detail || `Không đọc được trạng thái job (${response.status})`);
+      schedulePoll(3000);
       return;
     }
     const job = await response.json();
     renderJob(job);
     if (job.running) {
-      pollTimer = setTimeout(pollJob, 2000);
+      schedulePoll();
     } else if (!job.assets?.final_video && !job.web_error && !job.error_message) {
-      pollTimer = setTimeout(pollJob, 2000);
+      schedulePoll();
     }
   } catch (error) {
     setError(`Không đọc được trạng thái job: ${error.message}`);
+    schedulePoll(3000);
   }
 }
 

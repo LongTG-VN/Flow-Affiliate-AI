@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("top-left", "top-right", "bottom-left", "bottom-right", "center"),
         default="bottom-right",
     )
-    parser.add_argument("--sticker-width-pct", type=float, default=16.0)
+    parser.add_argument("--sticker-width-pct", type=float, default=22.0)
     parser.add_argument("--max-credit-per-video", type=int, default=15)
     parser.add_argument(
         "--approve-video-credits",

@@ -18,7 +18,7 @@ Natural elegant standing pose, slight three-quarter angle, soft indoor lighting,
 
 CHARACTER_VIDEO_LEVELS = {
     3: """Create a realistic 10-second vertical video from the provided image.
-The woman takes two slow graceful steps forward, gently adjusts her hair, and turns slightly toward the camera.
+The woman takes one slow step forward, gently adjusts her hair, and turns slightly toward the camera.
 Smooth full-body shot, soft daylight, natural movement.""",
     2: """Create a realistic vertical video from the provided image.
 The woman takes one slow step and gently adjusts her hair.
@@ -37,10 +37,9 @@ Smooth product shot, soft lighting, realistic fabric details.""",
 
 
 DEFAULT_VOICE_SCRIPT = (
-    "Chiếc đầm này thiết kế phom dáng lên hình cực kỳ gọn gàng và tôn dáng. "
-    "Chất vải mềm mại, các đường xếp ly rủ tự nhiên tạo cảm giác rất nhẹ nhàng khi di chuyển. "
-    "Mình quay thêm đoạn cận cảnh chi tiết để mọi người dễ quan sát hơn. "
-    "Nếu thích phong cách nữ tính này thì bấm góc bên dưới nha!"
+    "Chiếc đầm này lên hình khá gọn và nổi bật, phom dáng cùng các chi tiết thiết kế nhìn rõ khi quay toàn thân. "
+    "Mình có thêm đoạn cận cảnh để mọi người xem kỹ màu sắc, đường nét và phần hoàn thiện của sản phẩm. "
+    "Nếu thấy hợp phong cách của bạn thì bấm góc bên dưới để xem thêm thông tin chi tiết nhé!"
 )
 
 
