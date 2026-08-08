@@ -97,36 +97,54 @@ class AffiliatePipeline:
     def _extract_product(self, state: AffiliateJobState, workspace: Path) -> None:
         if state.isolated_product_image and Path(state.isolated_product_image).is_file():
             return
-        result = self.flow.generate_image(
-            job_id=f"{state.job_id}-extract-product",
-            prompt=EXTRACT_PRODUCT_PROMPT,
-            reference_paths=[state.product_image],
-            output_path=str(workspace / "images" / "product_isolated.png"),
-            aspect_ratio="9:16",
+        provider_job_id = (
+            f"{state.job_id}-extract-product-a{state.extract_attempt}"
         )
-        if result.status != "COMPLETED" or not result.output_path:
-            raise AffiliatePipelineError(result.error_message or "product extraction failed")
-        state.isolated_product_image = result.output_path
-        state.status = "PRODUCT_EXTRACTED"
-        self.job_store.clear_error(state)
+        try:
+            result = self.flow.generate_image(
+                job_id=provider_job_id,
+                prompt=EXTRACT_PRODUCT_PROMPT,
+                reference_paths=[state.product_image],
+                output_path=str(workspace / "images" / "product_isolated.png"),
+                aspect_ratio="9:16",
+            )
+            if result.status != "COMPLETED" or not result.output_path:
+                raise AffiliatePipelineError(
+                    result.error_message or "product extraction failed"
+                )
+            state.isolated_product_image = result.output_path
+            state.status = "PRODUCT_EXTRACTED"
+            self.job_store.clear_error(state)
+        except Exception as exc:
+            state.extract_attempt += 1
+            self.job_store.mark_error(state, "PRODUCT_EXTRACTION", str(exc))
+            raise
 
     def _dress_character(self, state: AffiliateJobState, workspace: Path) -> None:
         if state.character_wear_image and Path(state.character_wear_image).is_file():
             return
         if not state.isolated_product_image:
             raise AffiliatePipelineError("isolated product image is missing")
-        result = self.flow.generate_image(
-            job_id=f"{state.job_id}-dress-character",
-            prompt=WEAR_PRODUCT_PROMPT,
-            reference_paths=[state.character_image, state.isolated_product_image],
-            output_path=str(workspace / "images" / "character_wearing_product.png"),
-            aspect_ratio="9:16",
-        )
-        if result.status != "COMPLETED" or not result.output_path:
-            raise AffiliatePipelineError(result.error_message or "character dressing failed")
-        state.character_wear_image = result.output_path
-        state.status = "CHARACTER_DRESSED"
-        self.job_store.clear_error(state)
+        provider_job_id = f"{state.job_id}-dress-character-a{state.dress_attempt}"
+        try:
+            result = self.flow.generate_image(
+                job_id=provider_job_id,
+                prompt=WEAR_PRODUCT_PROMPT,
+                reference_paths=[state.character_image, state.isolated_product_image],
+                output_path=str(workspace / "images" / "character_wearing_product.png"),
+                aspect_ratio="9:16",
+            )
+            if result.status != "COMPLETED" or not result.output_path:
+                raise AffiliatePipelineError(
+                    result.error_message or "character dressing failed"
+                )
+            state.character_wear_image = result.output_path
+            state.status = "CHARACTER_DRESSED"
+            self.job_store.clear_error(state)
+        except Exception as exc:
+            state.dress_attempt += 1
+            self.job_store.mark_error(state, "CHARACTER_DRESSING", str(exc))
+            raise
 
     def _video_output(self, provider_job_id: str) -> str:
         status = self.flow.provider.poll(provider_job_id)
@@ -176,10 +194,9 @@ class AffiliatePipeline:
             self.job_store.clear_error(state)
         except Exception as exc:
             next_level = fallback_level(level)
-            self.job_store.mark_error(state, "CHARACTER_VIDEO", str(exc))
             if next_level is not None:
                 state.character_video_level = next_level
-                self.job_store.save(state)
+            self.job_store.mark_error(state, "CHARACTER_VIDEO", str(exc))
             raise PaidRetryApprovalRequired(state.job_id, level, next_level) from exc
 
     def _generate_product_video(
@@ -189,6 +206,7 @@ class AffiliatePipeline:
         *,
         style: str,
         approve_video_credits: bool,
+        approve_paid_retry: bool,
         max_credit_per_video: int,
     ) -> None:
         if state.product_video and Path(state.product_video).is_file():
@@ -197,21 +215,38 @@ class AffiliatePipeline:
             raise AffiliatePipelineError(
                 "video credit approval required: set approve_video_credits=True"
             )
+        if state.product_video_attempt > 1 and not approve_paid_retry:
+            raise AffiliatePipelineError(
+                "product video retry requires approve_paid_retry=True"
+            )
         if style not in PRODUCT_VIDEO_PROMPTS:
             raise AffiliatePipelineError(f"unknown product video style: {style}")
         if not state.isolated_product_image:
             raise AffiliatePipelineError("isolated product image is missing")
-        ref = self.flow.generate_video(
-            job_id=f"{state.job_id}-product-{style}",
-            prompt=PRODUCT_VIDEO_PROMPTS[style],
-            image_path=state.isolated_product_image,
-            duration_seconds=10,
-            output_directory=str(workspace / "clips" / f"product-{style}"),
-            max_credit_cost=max_credit_per_video,
+
+        provider_job_id = (
+            f"{state.job_id}-product-{style}-a{state.product_video_attempt}"
         )
-        state.product_video = self._video_output(ref.provider_job_id)
-        state.status = "PRODUCT_VIDEO_READY"
-        self.job_store.clear_error(state)
+        try:
+            ref = self.flow.generate_video(
+                job_id=provider_job_id,
+                prompt=PRODUCT_VIDEO_PROMPTS[style],
+                image_path=state.isolated_product_image,
+                duration_seconds=10,
+                output_directory=str(
+                    workspace / "clips" / f"product-{style}-a{state.product_video_attempt}"
+                ),
+                max_credit_cost=max_credit_per_video,
+            )
+            state.product_video = self._video_output(ref.provider_job_id)
+            state.status = "PRODUCT_VIDEO_READY"
+            self.job_store.clear_error(state)
+        except Exception as exc:
+            state.product_video_attempt += 1
+            self.job_store.mark_error(state, "PRODUCT_VIDEO", str(exc))
+            raise AffiliatePipelineError(
+                "product video failed; inspect the failure before approving a paid retry"
+            ) from exc
 
     def _synthesize_voice(
         self,
@@ -299,6 +334,7 @@ class AffiliatePipeline:
                 workspace,
                 style=product_video_style,
                 approve_video_credits=approve_video_credits,
+                approve_paid_retry=approve_paid_retry,
                 max_credit_per_video=max_credit_per_video,
             )
             self._synthesize_voice(
@@ -315,6 +351,6 @@ class AffiliatePipeline:
             )
             return asdict(state)
         except Exception as exc:
-            if not isinstance(exc, PaidRetryApprovalRequired):
+            if state.error_message is None:
                 self.job_store.mark_error(state, state.status, str(exc))
             raise
