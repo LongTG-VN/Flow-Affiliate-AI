@@ -14,7 +14,13 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Install Python package
         run: pip install -e ".[dev,web]"
-      - name: Test
+      - name: Compile
+        run: python -m compileall -q src
+      - name: Test full safe suite
         run: pytest -q
