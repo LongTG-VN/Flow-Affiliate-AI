@@ -17,6 +17,14 @@ from fastapi.staticfiles import StaticFiles
 
 from flow_affiliate_ai.cli import build_pipeline
 from flow_affiliate_ai.jobs import JobStore
+from flow_affiliate_ai.prompts.fashion import (
+    EXTRACT_PRODUCT_PROMPT,
+    MAX_PROMPT_CHARS,
+    PRODUCT_VIDEO_PROMPTS,
+    WEAR_PRODUCT_PROMPT,
+    character_video_attempt,
+    default_prompt_payload,
+)
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ALLOWED_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -36,10 +44,23 @@ class WebJobConfig:
     job_id: str
     character_image: str
     product_image: str
+    extract_product_prompt: str = EXTRACT_PRODUCT_PROMPT
+    wear_product_prompt: str = WEAR_PRODUCT_PROMPT
+    character_video_prompt: str = character_video_attempt(3).prompt
+    product_video_prompt: str = PRODUCT_VIDEO_PROMPTS["zoom"]
     tts_provider: str = "gemini"
     voice: str = "Zephyr"
     product_video_style: str = "zoom"
     max_credit_per_video: int = 15
+
+    @property
+    def prompts(self) -> dict[str, str]:
+        return {
+            "extract_product": self.extract_product_prompt,
+            "wear_product": self.wear_product_prompt,
+            "character_video": self.character_video_prompt,
+            "product_video": self.product_video_prompt,
+        }
 
 
 class ConfigStore:
@@ -98,6 +119,10 @@ class JobRunner:
                 job_id=config.job_id,
                 character_image=config.character_image,
                 product_image=config.product_image,
+                extract_product_prompt=config.extract_product_prompt,
+                wear_product_prompt=config.wear_product_prompt,
+                character_video_prompt=config.character_video_prompt,
+                product_video_prompt=config.product_video_prompt,
                 voice=config.voice,
                 product_video_style=config.product_video_style,
                 approve_video_credits=True,
@@ -116,6 +141,18 @@ def _job_id(value: Optional[str]) -> str:
     if not JOB_ID_RE.fullmatch(value):
         raise HTTPException(status_code=400, detail="invalid job_id")
     return value
+
+
+def _prompt_value(value: Optional[str], default: str, label: str) -> str:
+    prompt = (value if value is not None else default).strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail=f"{label} cannot be empty")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{label} exceeds {MAX_PROMPT_CHARS} characters",
+        )
+    return prompt
 
 
 async def _save_upload(upload: UploadFile, directory: Path, stem: str) -> str:
@@ -158,13 +195,19 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
     data_root = data_root.resolve()
     static_dir = Path(__file__).parent / "static"
     runner = JobRunner(data_root, pipeline_builder)
-    app = FastAPI(title="Flow Affiliate AI", version="0.3.0")
+    app = FastAPI(title="Flow Affiliate AI", version="0.4.0")
     app.state.runner = runner
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(static_dir / "index.html")
+
+    @app.get("/api/prompts/defaults")
+    def prompt_defaults(product_video_style: str = "zoom") -> dict[str, str]:
+        if product_video_style not in PRODUCT_VIDEO_PROMPTS:
+            raise HTTPException(status_code=400, detail="invalid product video style")
+        return default_prompt_payload(product_video_style)
 
     @app.get("/api/health")
     def health(tts_provider: str = "gemini") -> dict:
@@ -182,6 +225,10 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         character: UploadFile = File(...),
         product: UploadFile = File(...),
         job_id: Optional[str] = Form(None),
+        extract_product_prompt: Optional[str] = Form(None),
+        wear_product_prompt: Optional[str] = Form(None),
+        character_video_prompt: Optional[str] = Form(None),
+        product_video_prompt: Optional[str] = Form(None),
         tts_provider: str = Form("gemini"),
         voice: str = Form("Zephyr"),
         product_video_style: str = Form("zoom"),
@@ -194,6 +241,31 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
             raise HTTPException(status_code=400, detail="invalid generation option")
         if not 0 <= max_credit_per_video <= 1000:
             raise HTTPException(status_code=400, detail="invalid credit ceiling")
+
+        defaults = default_prompt_payload(product_video_style)
+        prompts = {
+            "extract_product": _prompt_value(
+                extract_product_prompt,
+                defaults["extract_product"],
+                "extract product prompt",
+            ),
+            "wear_product": _prompt_value(
+                wear_product_prompt,
+                defaults["wear_product"],
+                "wear product prompt",
+            ),
+            "character_video": _prompt_value(
+                character_video_prompt,
+                defaults["character_video"],
+                "character video prompt",
+            ),
+            "product_video": _prompt_value(
+                product_video_prompt,
+                defaults["product_video"],
+                "product video prompt",
+            ),
+        }
+
         resolved_id = _job_id(job_id)
         if runner.configs.load(resolved_id) or runner.jobs.load(resolved_id):
             raise HTTPException(status_code=409, detail="job_id already exists")
@@ -201,13 +273,17 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         character_path = await _save_upload(character, upload_dir, "character")
         product_path = await _save_upload(product, upload_dir, "product")
         config = WebJobConfig(
-            resolved_id,
-            character_path,
-            product_path,
-            tts_provider,
-            voice.strip() or "Zephyr",
-            product_video_style,
-            max_credit_per_video,
+            job_id=resolved_id,
+            character_image=character_path,
+            product_image=product_path,
+            extract_product_prompt=prompts["extract_product"],
+            wear_product_prompt=prompts["wear_product"],
+            character_video_prompt=prompts["character_video"],
+            product_video_prompt=prompts["product_video"],
+            tts_provider=tts_provider,
+            voice=voice.strip() or "Zephyr",
+            product_video_style=product_video_style,
+            max_credit_per_video=max_credit_per_video,
         )
         runner.submit(config)
         return {"job_id": resolved_id, "status_url": f"/api/jobs/{resolved_id}"}
@@ -221,6 +297,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         payload = asdict(state) if state else {"job_id": job_id, "status": "QUEUED"}
         payload["running"] = runner.running(job_id)
         payload["web_error"] = runner.error(job_id)
+        payload["prompts"] = config.prompts if config else payload.get("prompts", {})
         payload["assets"] = {}
         if state:
             for kind, field_name in ASSET_FIELDS.items():
