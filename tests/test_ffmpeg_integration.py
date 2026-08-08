@@ -108,7 +108,7 @@ def test_ffmpeg_renderer_outputs_vertical_h264_aac_master(tmp_path):
     assert media.audio_codec == "aac"
     assert media.audio_channels == 2
     assert media.audio_sample_rate == 48000
-    assert media.duration_seconds > 0.7
+    assert media.duration_seconds > 0.5
     assert len(media.file_sha256) == 64
 
 

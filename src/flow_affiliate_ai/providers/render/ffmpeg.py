@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import List
 
-from .base import MediaProbe, RenderJobRef, RenderManifest, ValidationResult
+from .base import ClipInput, MediaProbe, RenderJobRef, RenderManifest, ValidationResult
 
 
 OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right", "center"}
@@ -121,18 +121,26 @@ class FfmpegRenderProvider:
             audio_sample_rate=sample_rate,
         )
 
+    def _clip_effective_duration(self, clip: ClipInput) -> float:
+        media = self.probe(Path(clip.path))
+        source_duration = max(0.0, media.duration_seconds)
+        trim_in = clip.trim_in_ms / 1000.0
+        trim_out = (
+            clip.trim_out_ms / 1000.0
+            if clip.trim_out_ms
+            else source_duration
+        )
+        return max(0.0, min(source_duration, trim_out) - trim_in)
+
     def _effective_video_duration(self, manifest: RenderManifest) -> float:
-        total = 0.0
-        for clip in manifest.clips:
-            media = self.probe(Path(clip.path))
-            source_duration = max(0.0, media.duration_seconds)
-            trim_in = clip.trim_in_ms / 1000.0
-            trim_out = (
-                clip.trim_out_ms / 1000.0
-                if clip.trim_out_ms
-                else source_duration
-            )
-            total += max(0.0, min(source_duration, trim_out) - trim_in)
+        if not manifest.clips:
+            raise RuntimeError("render clips list is empty")
+        durations = [self._clip_effective_duration(clip) for clip in manifest.clips]
+        total = sum(durations)
+        if len(durations) > 1:
+            for i in range(len(durations) - 1):
+                trans_dur = min(0.5, max(0.1, durations[i] / 2.0))
+                total -= trans_dur
         if total <= 0:
             raise RuntimeError("render clips have zero effective duration")
         return total
@@ -144,16 +152,6 @@ class FfmpegRenderProvider:
 
         output = Path(manifest.output_path or f"data/renders/{manifest.job_id}.mp4").resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
-        concat = output.parent / f".{manifest.job_id}.concat.txt"
-        lines = []
-        for clip in manifest.clips:
-            lines.append(f"file '{_concat_escape(Path(clip.path))}'")
-            if clip.trim_in_ms:
-                lines.append(f"inpoint {clip.trim_in_ms / 1000:.3f}")
-            if clip.trim_out_ms:
-                lines.append(f"outpoint {clip.trim_out_ms / 1000:.3f}")
-        concat.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
         temp = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.mp4")
         log_path = output.parent / f".{manifest.job_id}.ffmpeg.log"
         try:
@@ -161,13 +159,12 @@ class FfmpegRenderProvider:
         except Exception as exc:
             return RenderJobRef(manifest.job_id, "FAILED", "", "", str(exc))
 
-        # Keep every audio branch finite. An unbounded `apad` can keep FFmpeg 6.x
-        # buffering after the concat video ends and eventually surface ENOSPC even
-        # though the output file itself is tiny. One second of headroom ensures the
-        # video remains the stream that decides `-shortest`.
         audio_target = video_duration + 1.0
-        cmd = [self.ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(concat)]
-        next_index = 1
+        cmd = [self.ffmpeg_bin, "-y"]
+        for clip in manifest.clips:
+            cmd += ["-i", str(Path(clip.path).resolve())]
+
+        next_index = len(manifest.clips)
         voice_index = None
         music_index = None
         silence_index = None
@@ -194,18 +191,63 @@ class FfmpegRenderProvider:
             ]
 
         width, height = map(int, manifest.resolution)
-        video_filters = [
+        scaled_filters = [
             f"scale={width}:{height}:force_original_aspect_ratio=increase",
             f"crop={width}:{height}",
             "setsar=1",
             f"fps={manifest.fps}",
         ]
-        if manifest.captions_ass:
-            video_filters.append(f"ass=filename='{_filter_escape(Path(manifest.captions_ass))}'")
 
         filters: list[str] = []
+        clip_labels = []
+        for idx, clip in enumerate(manifest.clips):
+            label = f"vclip_{idx}"
+            clip_labels.append(label)
+            trim_filters = []
+            if clip.trim_in_ms or clip.trim_out_ms:
+                trim_in_s = clip.trim_in_ms / 1000.0
+                if clip.trim_out_ms:
+                    trim_out_s = clip.trim_out_ms / 1000.0
+                    trim_filters.append(f"trim=start={trim_in_s:.3f}:end={trim_out_s:.3f},setpts=PTS-STARTPTS")
+                else:
+                    trim_filters.append(f"trim=start={trim_in_s:.3f},setpts=PTS-STARTPTS")
+            chain = trim_filters + scaled_filters
+            filters.append(f"[{idx}:v]{','.join(chain)}[{label}]")
+
+        if len(clip_labels) == 1:
+            joined_v = clip_labels[0]
+        else:
+            dur_accum = 0.0
+            last_v = clip_labels[0]
+            for i in range(len(clip_labels) - 1):
+                clip_dur = self._clip_effective_duration(manifest.clips[i])
+                dur_accum += clip_dur
+                trans_dur = min(0.5, max(0.1, clip_dur / 2.0))
+                offset = max(0.0, dur_accum - trans_dur)
+                dur_accum -= trans_dur
+                next_v = clip_labels[i + 1]
+                out_v = f"vxfade_{i}" if i < len(clip_labels) - 2 else "vjoined"
+                filters.append(
+                    f"[{last_v}][{next_v}]xfade=transition=fade:duration={trans_dur:.3f}:offset={offset:.3f}[{out_v}]"
+                )
+                last_v = out_v
+            joined_v = last_v
+
+        # Intro entrance effect: 0.6s fade-in at video start
+        intro_label = "vintro"
+        filters.append(f"[{joined_v}]fade=t=in:st=0:d=0.6[{intro_label}]")
+
+        if manifest.captions_ass:
+            caption_label = "vcap"
+            filters.append(f"[{intro_label}]ass=filename='{_filter_escape(Path(manifest.captions_ass))}'[{caption_label}]")
+            current_v = caption_label
+        else:
+            current_v = intro_label
+
         base_label = "vbase" if overlay_index is not None else "vout"
-        filters.append(f"[0:v]{','.join(video_filters)}[{base_label}]")
+        if current_v != base_label:
+            filters.append(f"[{current_v}]null[{base_label}]")
+
         if overlay_index is not None:
             overlay_width = max(1, round(width * float(manifest.overlay_width_pct) / 100.0))
             x, y = _overlay_xy(manifest.overlay_position, manifest.overlay_margin_px)
