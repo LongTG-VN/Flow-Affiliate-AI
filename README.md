@@ -42,6 +42,43 @@ final_video.mp4
 
 No `rembg` dependency is required in V1. Product isolation is performed by the fixed semantic extraction prompt inside Flow.
 
+## Local web dashboard
+
+V0.3 adds a lightweight local FastAPI dashboard. It is intentionally bound to `127.0.0.1` and exposes only generated assets located under the configured local `data/` directory.
+
+Install web + TTS dependencies:
+
+```powershell
+pip install -e ".[tts,web,dev]"
+```
+
+Start the dashboard:
+
+```powershell
+flow-affiliate-web
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The dashboard provides:
+
+- character-image upload + preview
+- product-image upload + preview
+- Gemini/Edge TTS selector
+- voice and product-shot controls
+- explicit Flow-credit approval
+- live checkpoint polling
+- intermediate image/video previews
+- approved fallback retry after a failed character-video attempt
+- final video preview + MP4 download
+- core health check for Flow, TTS, FFmpeg and FFprobe
+
+Web jobs are serialized through one local worker so a single authenticated Flow browser session is not driven concurrently.
+
 ## Checkpoints and retries
 
 Each run has a durable state file under `data/jobs/<job-id>.json`. Completed image/video/audio/render outputs are reused when the same job resumes, so a later failure does not force the entire workflow to start again.
@@ -53,7 +90,7 @@ Level 3 → fail → prepare Level 2
 Level 2 → fail → prepare Level 1
 ```
 
-A paid fallback video attempt is never submitted silently. After a failure, rerun the same job with explicit paid-retry approval.
+A paid fallback video attempt is never submitted silently. After a failure, rerun the same job with explicit paid-retry approval, or use the dashboard retry button.
 
 ## Requirements
 
@@ -62,12 +99,6 @@ A paid fallback video attempt is never submitted silently. After a failure, reru
 - Google Flow access and an authenticated desktop session
 - FFmpeg + FFprobe in PATH
 - Gemini API key or Edge TTS
-
-Install the package:
-
-```powershell
-pip install -e ".[tts,dev]"
-```
 
 Install/authenticate `gflow-cli` separately, then verify:
 
@@ -89,7 +120,7 @@ $env:GFLOW_PROFILE = "default"
 $env:GFLOW_BIN = "gflow"
 ```
 
-## Run one job
+## CLI run
 
 ```powershell
 flow-affiliate `
@@ -98,8 +129,6 @@ flow-affiliate `
   --product "D:\inputs\dress.png" `
   --approve-video-credits
 ```
-
-The first run performs both credit-free/Flow-image stages and the approved paid video stages, then TTS and FFmpeg rendering.
 
 If the character video fails and the job records a lower fallback level, inspect the failure and explicitly retry:
 
@@ -118,6 +147,8 @@ Optional arguments include `--tts edge`, `--voice`, `--product-video-style pan`,
 
 ```text
 data/
+├── uploads/              # web-uploaded character/product inputs
+├── web_jobs/             # persistent web job options
 ├── jobs/                 # durable pipeline checkpoints
 ├── gflow_jobs/           # durable provider submission state
 └── runs/
@@ -141,6 +172,7 @@ src/flow_affiliate_ai/
 │   └── render/           # FFmpeg renderer
 ├── prompts/              # fixed fashion prompts + L3/L2/L1 fallback
 ├── services/             # thin reusable service layer
+├── web/                  # FastAPI + static local dashboard
 ├── jobs.py               # durable job checkpoints
 ├── pipeline.py           # end-to-end orchestration
 └── cli.py                # flow-affiliate command
@@ -152,7 +184,7 @@ src/flow_affiliate_ai/
 pytest -q
 ```
 
-The unit pipeline tests use fake Flow/TTS/render providers and do not consume Flow credits.
+CI installs the web dependencies and tests the dashboard routes, upload validation, and the rule that asset delivery cannot escape the local `data/` directory. Pipeline tests use fake providers and do not consume Flow credits.
 
 ## gflow-cli note
 
