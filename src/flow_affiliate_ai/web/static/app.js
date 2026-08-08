@@ -9,6 +9,7 @@ const finalWrap = document.getElementById('finalWrap');
 const finalEmpty = document.getElementById('finalEmpty');
 const finalVideo = document.getElementById('finalVideo');
 const downloadFinal = document.getElementById('downloadFinal');
+const auditSummary = document.getElementById('auditSummary');
 const jobLabel = document.getElementById('jobLabel');
 const healthBadge = document.getElementById('healthBadge');
 const healthButton = document.getElementById('healthButton');
@@ -34,7 +35,7 @@ const stepDefs = [
   ['character_video', 'Video nhân vật', 'Flow video'],
   ['product_video', 'Video sản phẩm', 'Flow video'],
   ['voice_audio', 'Tạo voice', 'TTS'],
-  ['final_video', 'Render final', 'FFmpeg'],
+  ['final_video', 'Final + Audit', 'FFmpeg + provenance'],
 ];
 
 function previewFile(input, image) {
@@ -190,6 +191,23 @@ function renderFinal(job) {
   downloadFinal.href = `${url}?download=true`;
 }
 
+function renderAudit(job) {
+  const metadata = job.metadata || {};
+  const c2pa = metadata.c2pa_status;
+  const watermark = metadata.invisible_watermark_status;
+  const sanitized = metadata.privacy_metadata_sanitized;
+
+  if (!c2pa && !watermark && sanitized === undefined) {
+    auditSummary.textContent = '';
+    auditSummary.classList.add('hidden');
+    return;
+  }
+
+  const sanitizedLabel = sanitized === 'true' || sanitized === true ? 'yes' : 'no';
+  auditSummary.textContent = `Provenance audit · C2PA: ${c2pa || 'unknown'} · Invisible watermark: ${watermark || 'unknown'} · Privacy metadata sanitized: ${sanitizedLabel}`;
+  auditSummary.classList.remove('hidden');
+}
+
 function restoreJobOptions(job) {
   setPromptValues(job.prompts || {});
   const options = job.render_options || {};
@@ -207,6 +225,7 @@ function renderJob(job) {
   renderProgress(job);
   renderAssets(job);
   renderFinal(job);
+  renderAudit(job);
   const message = job.web_error || job.error_message || '';
   setError(message);
   const canRetry = Boolean(message) && !job.running && !job.assets?.final_video;
@@ -321,6 +340,7 @@ healthButton.addEventListener('click', async () => {
 });
 
 renderProgress({ assets: {}, running: false });
+renderAudit({ metadata: {} });
 if (currentJobId) {
   jobLabel.textContent = currentJobId;
   pollJob();
