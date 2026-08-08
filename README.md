@@ -6,24 +6,81 @@ Minimal fashion-affiliate automation toolkit built around three reusable cores:
 2. Vietnamese TTS through Gemini or Edge TTS
 3. Final vertical-video rendering through FFmpeg
 
-This repository intentionally excludes the novel/story pipeline from `Movie-AI-Flow` and keeps the core generation stack small and reusable.
+The novel/story engine from `Movie-AI-Flow` is intentionally excluded.
 
-## Planned pipeline
+## Current pipeline
 
 ```text
-character image + product image
+final character image + clean product image
         ↓
-prompt templates / image preparation
+short Flow prompt templates
         ↓
 Google Flow via gflow-cli
         ↓
 character clip + product clip
         ↓
-TTS voice-over
+Gemini / Edge TTS
         ↓
-FFmpeg edit / captions / music
+FFmpeg + voice + music + ASS captions
         ↓
-final 9:16 affiliate video
+final 1080x1920 affiliate video
 ```
 
-The first implementation commit will add the standalone provider modules, services, fallback prompts, and tests.
+Image extraction and character-wearing-product image generation are upstream steps for the next phase.
+
+## Prompt fallback
+
+Character-video prompts use three complexity levels:
+
+```text
+Level 3 → generation fails → prepare Level 2
+Level 2 → generation fails → prepare Level 1
+```
+
+Fallback only prepares the next prompt. It does not automatically spend another Flow attempt/credit.
+
+## Requirements
+
+- Python 3.11+
+- `gflow-cli`
+- Google Flow desktop login
+- FFmpeg + FFprobe in PATH
+- optional Gemini or Edge TTS dependencies
+
+Install:
+
+```powershell
+pip install -e ".[tts,dev]"
+```
+
+Copy `.env.example` to `.env` and configure the providers you use.
+
+For Flow, authenticate in the desktop session:
+
+```powershell
+gflow auth login
+gflow auth status
+```
+
+Run tests:
+
+```powershell
+pytest -q
+```
+
+## Package layout
+
+```text
+src/flow_affiliate_ai/
+├── providers/
+│   ├── flow/       # gflow-cli core
+│   ├── tts/        # Gemini + Edge TTS
+│   └── render/     # FFmpeg renderer
+├── prompts/        # fashion prompts + fallback
+├── services/       # thin reusable service layer
+└── pipeline.py     # affiliate orchestration
+```
+
+## Safety around paid Flow generations
+
+Flow jobs use deterministic idempotency keys and durable local state. Ambiguous duplicate submissions are refused. A failed prompt can produce a lower-complexity fallback prompt, but a new paid attempt remains explicit.
