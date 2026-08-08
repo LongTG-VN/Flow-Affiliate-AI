@@ -41,6 +41,13 @@
             <img id="productPreview" alt="Preview sản phẩm">
             <small>Flow sẽ tách sản phẩm theo Prompt 1 bên dưới.</small>
           </label>
+
+          <label class="upload-card optional-card">
+            <span>Sticker / overlay <em>tuỳ chọn</em></span>
+            <input id="sticker" name="sticker" type="file" accept="image/png,image/jpeg,image/webp">
+            <img id="stickerPreview" alt="Preview sticker">
+            <small>Chỉ chèn ở bước render cuối. Hợp cho branding hoặc che chi tiết riêng tư trong video.</small>
+          </label>
         </div>
 
         <div class="prompt-section">
@@ -74,7 +81,7 @@
 
             <label class="prompt-card">
               <span><b>4.</b> Video sản phẩm</span>
-              <small>Ảnh sản phẩm đã tách → product detail video</small>
+              <small>Nguồn ảnh cho clip cận cảnh được chọn ở phần Product video source.</small>
               <textarea id="productVideoPrompt" name="product_video_prompt" rows="8" maxlength="8000" required></textarea>
             </label>
           </div>
@@ -100,10 +107,33 @@
             </select>
           </label>
           <label>
+            <span>Product video source</span>
+            <select name="product_video_source" id="productVideoSource">
+              <option value="worn">Ảnh nhân vật mặc sản phẩm</option>
+              <option value="isolated">Ảnh sản phẩm đã tách</option>
+            </select>
+          </label>
+          <label>
+            <span>Sticker position</span>
+            <select name="overlay_position" id="overlayPosition">
+              <option value="bottom-right">Dưới phải</option>
+              <option value="bottom-left">Dưới trái</option>
+              <option value="top-right">Trên phải</option>
+              <option value="top-left">Trên trái</option>
+              <option value="center">Giữa</option>
+            </select>
+          </label>
+          <label>
+            <span>Sticker width (%)</span>
+            <input name="overlay_width_pct" id="overlayWidthPct" type="number" min="1" max="50" step="1" value="16">
+          </label>
+          <label>
             <span>Credit ceiling / video</span>
             <input name="max_credit_per_video" type="number" min="0" max="1000" value="15">
           </label>
         </div>
+
+        <p class="render-note">Sticker là overlay tổng quát của FFmpeg và chỉ áp dụng lên file final; nếu không upload sticker thì các tuỳ chọn sticker được bỏ qua.</p>
 
         <label class="credit-check">
           <input id="approveCredits" name="approve_video_credits" type="checkbox" value="true" required>
