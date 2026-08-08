@@ -36,6 +36,7 @@ class AffiliateJobState:
     product_video_attempt: int = 1
     error_stage: Optional[str] = None
     error_message: Optional[str] = None
+    prompts: Dict[str, str] = field(default_factory=dict)
     metadata: Dict[str, str] = field(default_factory=dict)
 
 
