@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="flow-affiliate",
         description=(
             "Generate a complete vertical fashion affiliate video from one "
-            "character image and one product image using fixed prompts."
+            "character image and one product image."
         ),
     )
     parser.add_argument("--job-id", required=True)
@@ -52,8 +52,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tts", choices=("gemini", "edge"), default="gemini")
     parser.add_argument("--voice", default="Zephyr")
     parser.add_argument("--product-video-style", choices=("zoom", "pan"), default="zoom")
+    parser.add_argument(
+        "--product-video-source",
+        choices=("worn", "isolated"),
+        default="worn",
+        help="Use the dressed character or the isolated product as the detail-video reference.",
+    )
     parser.add_argument("--music", default=None)
     parser.add_argument("--captions-ass", default=None)
+    parser.add_argument("--sticker", default=None, help="Optional PNG/JPG/WebP overlay for the final render")
+    parser.add_argument(
+        "--sticker-position",
+        choices=("top-left", "top-right", "bottom-left", "bottom-right", "center"),
+        default="bottom-right",
+    )
+    parser.add_argument("--sticker-width-pct", type=float, default=16.0)
     parser.add_argument("--max-credit-per-video", type=int, default=15)
     parser.add_argument(
         "--approve-video-credits",
@@ -80,8 +93,12 @@ def main() -> int:
         product_image=args.product,
         voice=args.voice,
         product_video_style=args.product_video_style,
+        product_video_source=args.product_video_source,
         music_track=args.music,
         captions_ass=args.captions_ass,
+        overlay_image=args.sticker,
+        overlay_position=args.sticker_position,
+        overlay_width_pct=args.sticker_width_pct,
         approve_video_credits=args.approve_video_credits,
         approve_paid_retry=args.approve_paid_retry,
         max_credit_per_video=args.max_credit_per_video,
