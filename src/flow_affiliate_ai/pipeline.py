@@ -6,6 +6,7 @@ from flow_affiliate_ai.jobs import AffiliateJobState, JobStore
 from flow_affiliate_ai.prompts.fashion import (
     DEFAULT_VOICE_SCRIPT,
     EXTRACT_PRODUCT_PROMPT,
+    MAX_PROMPT_CHARS,
     PRODUCT_VIDEO_PROMPTS,
     WEAR_PRODUCT_PROMPT,
     character_video_attempt,
@@ -38,10 +39,10 @@ class PaidRetryApprovalRequired(AffiliatePipelineError):
 class AffiliatePipeline:
     """End-to-end fashion affiliate pipeline with durable checkpoints.
 
-    Fixed prompt templates are used for image/video generation. The operator only
-    supplies a character image and product image. Paid Flow video retries are never
-    performed silently: the first attempt can be approved for the run, while a
-    fallback attempt requires `approve_paid_retry=True`.
+    Four primary prompts can be supplied per job from the web UI or another caller.
+    The prompts are persisted into the job checkpoint so resumed runs cannot silently
+    switch generation instructions halfway through a job. Character-video fallback
+    levels 2 and 1 remain fixed, intentionally simpler backend safety prompts.
     """
 
     def __init__(
@@ -71,11 +72,23 @@ class AffiliatePipeline:
             raise AffiliatePipelineError(f"{label} does not exist: {resolved}")
         return str(resolved)
 
+    @staticmethod
+    def _resolve_prompt(value: Optional[str], default: str, label: str) -> str:
+        prompt = (value if value is not None else default).strip()
+        if not prompt:
+            raise AffiliatePipelineError(f"{label} cannot be empty")
+        if len(prompt) > MAX_PROMPT_CHARS:
+            raise AffiliatePipelineError(
+                f"{label} exceeds {MAX_PROMPT_CHARS} characters"
+            )
+        return prompt
+
     def _load_or_create(
         self,
         job_id: str,
         character_image: str,
         product_image: str,
+        prompts: dict[str, str],
     ) -> AffiliateJobState:
         character = self._require_input(character_image, "character image")
         product = self._require_input(product_image, "product image")
@@ -85,25 +98,37 @@ class AffiliatePipeline:
                 raise AffiliatePipelineError("job character image cannot be changed")
             if Path(existing.product_image).resolve() != Path(product).resolve():
                 raise AffiliatePipelineError("job product image cannot be changed")
+            if existing.prompts and existing.prompts != prompts:
+                raise AffiliatePipelineError(
+                    "job prompts cannot be changed after generation has started; create a new job"
+                )
+            if not existing.prompts:
+                existing.prompts = dict(prompts)
+                self.job_store.save(existing)
             return existing
         state = AffiliateJobState(
             job_id=job_id,
             character_image=character,
             product_image=product,
+            prompts=dict(prompts),
         )
         self.job_store.save(state)
         return state
 
-    def _extract_product(self, state: AffiliateJobState, workspace: Path) -> None:
+    def _extract_product(
+        self,
+        state: AffiliateJobState,
+        workspace: Path,
+        *,
+        prompt: str,
+    ) -> None:
         if state.isolated_product_image and Path(state.isolated_product_image).is_file():
             return
-        provider_job_id = (
-            f"{state.job_id}-extract-product-a{state.extract_attempt}"
-        )
+        provider_job_id = f"{state.job_id}-extract-product-a{state.extract_attempt}"
         try:
             result = self.flow.generate_image(
                 job_id=provider_job_id,
-                prompt=EXTRACT_PRODUCT_PROMPT,
+                prompt=prompt,
                 reference_paths=[state.product_image],
                 output_path=str(workspace / "images" / "product_isolated.png"),
                 aspect_ratio="9:16",
@@ -120,7 +145,13 @@ class AffiliatePipeline:
             self.job_store.mark_error(state, "PRODUCT_EXTRACTION", str(exc))
             raise
 
-    def _dress_character(self, state: AffiliateJobState, workspace: Path) -> None:
+    def _dress_character(
+        self,
+        state: AffiliateJobState,
+        workspace: Path,
+        *,
+        prompt: str,
+    ) -> None:
         if state.character_wear_image and Path(state.character_wear_image).is_file():
             return
         if not state.isolated_product_image:
@@ -129,7 +160,7 @@ class AffiliatePipeline:
         try:
             result = self.flow.generate_image(
                 job_id=provider_job_id,
-                prompt=WEAR_PRODUCT_PROMPT,
+                prompt=prompt,
                 reference_paths=[state.character_image, state.isolated_product_image],
                 output_path=str(workspace / "images" / "character_wearing_product.png"),
                 aspect_ratio="9:16",
@@ -162,6 +193,7 @@ class AffiliatePipeline:
         state: AffiliateJobState,
         workspace: Path,
         *,
+        primary_prompt: str,
         approve_video_credits: bool,
         approve_paid_retry: bool,
         max_credit_per_video: int,
@@ -178,12 +210,12 @@ class AffiliatePipeline:
         level = state.character_video_level
         if level < 3 and not approve_paid_retry:
             raise PaidRetryApprovalRequired(state.job_id, level + 1, level)
-        attempt = character_video_attempt(level)
+        prompt = primary_prompt if level == 3 else character_video_attempt(level).prompt
         provider_job_id = f"{state.job_id}-character-l{level}"
         try:
             ref = self.flow.generate_video(
                 job_id=provider_job_id,
-                prompt=attempt.prompt,
+                prompt=prompt,
                 image_path=state.character_wear_image,
                 duration_seconds=10,
                 output_directory=str(workspace / "clips" / f"character-l{level}"),
@@ -205,6 +237,7 @@ class AffiliatePipeline:
         workspace: Path,
         *,
         style: str,
+        prompt: str,
         approve_video_credits: bool,
         approve_paid_retry: bool,
         max_credit_per_video: int,
@@ -224,13 +257,11 @@ class AffiliatePipeline:
         if not state.isolated_product_image:
             raise AffiliatePipelineError("isolated product image is missing")
 
-        provider_job_id = (
-            f"{state.job_id}-product-{style}-a{state.product_video_attempt}"
-        )
+        provider_job_id = f"{state.job_id}-product-{style}-a{state.product_video_attempt}"
         try:
             ref = self.flow.generate_video(
                 job_id=provider_job_id,
-                prompt=PRODUCT_VIDEO_PROMPTS[style],
+                prompt=prompt,
                 image_path=state.isolated_product_image,
                 duration_seconds=10,
                 output_directory=str(
@@ -308,6 +339,10 @@ class AffiliatePipeline:
         job_id: str,
         character_image: str,
         product_image: str,
+        extract_product_prompt: Optional[str] = None,
+        wear_product_prompt: Optional[str] = None,
+        character_video_prompt: Optional[str] = None,
+        product_video_prompt: Optional[str] = None,
         voice_script: str = DEFAULT_VOICE_SCRIPT,
         voice: str = "Zephyr",
         product_video_style: str = "zoom",
@@ -317,14 +352,49 @@ class AffiliatePipeline:
         approve_paid_retry: bool = False,
         max_credit_per_video: int = 15,
     ) -> dict:
-        state = self._load_or_create(job_id, character_image, product_image)
+        if product_video_style not in PRODUCT_VIDEO_PROMPTS:
+            raise AffiliatePipelineError(
+                f"unknown product video style: {product_video_style}"
+            )
+        prompts = {
+            "extract_product": self._resolve_prompt(
+                extract_product_prompt,
+                EXTRACT_PRODUCT_PROMPT,
+                "extract product prompt",
+            ),
+            "wear_product": self._resolve_prompt(
+                wear_product_prompt,
+                WEAR_PRODUCT_PROMPT,
+                "wear product prompt",
+            ),
+            "character_video": self._resolve_prompt(
+                character_video_prompt,
+                character_video_attempt(3).prompt,
+                "character video prompt",
+            ),
+            "product_video": self._resolve_prompt(
+                product_video_prompt,
+                PRODUCT_VIDEO_PROMPTS[product_video_style],
+                "product video prompt",
+            ),
+        }
+        state = self._load_or_create(job_id, character_image, product_image, prompts)
         workspace = self._workspace(job_id)
         try:
-            self._extract_product(state, workspace)
-            self._dress_character(state, workspace)
+            self._extract_product(
+                state,
+                workspace,
+                prompt=prompts["extract_product"],
+            )
+            self._dress_character(
+                state,
+                workspace,
+                prompt=prompts["wear_product"],
+            )
             self._generate_character_video(
                 state,
                 workspace,
+                primary_prompt=prompts["character_video"],
                 approve_video_credits=approve_video_credits,
                 approve_paid_retry=approve_paid_retry,
                 max_credit_per_video=max_credit_per_video,
@@ -333,6 +403,7 @@ class AffiliatePipeline:
                 state,
                 workspace,
                 style=product_video_style,
+                prompt=prompts["product_video"],
                 approve_video_credits=approve_video_credits,
                 approve_paid_retry=approve_paid_retry,
                 max_credit_per_video=max_credit_per_video,

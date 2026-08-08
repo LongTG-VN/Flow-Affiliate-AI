@@ -1,6 +1,7 @@
 const form = document.getElementById('jobForm');
 const generateButton = document.getElementById('generateButton');
 const retryButton = document.getElementById('retryButton');
+const resetPromptsButton = document.getElementById('resetPromptsButton');
 const errorBox = document.getElementById('errorBox');
 const progressGrid = document.getElementById('progressGrid');
 const assetGrid = document.getElementById('assetGrid');
@@ -11,9 +12,18 @@ const downloadFinal = document.getElementById('downloadFinal');
 const jobLabel = document.getElementById('jobLabel');
 const healthBadge = document.getElementById('healthBadge');
 const healthButton = document.getElementById('healthButton');
+const productVideoStyle = document.getElementById('productVideoStyle');
+
+const promptFields = {
+  extract_product: document.getElementById('extractProductPrompt'),
+  wear_product: document.getElementById('wearProductPrompt'),
+  character_video: document.getElementById('characterVideoPrompt'),
+  product_video: document.getElementById('productVideoPrompt'),
+};
 
 let currentJobId = localStorage.getItem('flowAffiliateJobId');
 let pollTimer = null;
+let restoredPromptJobId = null;
 
 const stepDefs = [
   ['isolated_product', 'Tách sản phẩm', 'Flow image i2i'],
@@ -36,6 +46,45 @@ document.getElementById('character').addEventListener('change', (e) => {
 });
 document.getElementById('product').addEventListener('change', (e) => {
   previewFile(e.target, document.getElementById('productPreview'));
+});
+
+function setPromptValues(prompts) {
+  Object.entries(promptFields).forEach(([key, field]) => {
+    if (typeof prompts?.[key] === 'string') field.value = prompts[key];
+  });
+}
+
+async function loadDefaultPrompts({ productOnly = false } = {}) {
+  const style = productVideoStyle.value;
+  const response = await fetch(`/api/prompts/defaults?product_video_style=${encodeURIComponent(style)}`, { cache: 'no-store' });
+  const prompts = await response.json();
+  if (!response.ok) throw new Error(prompts.detail || 'Không tải được prompt mặc định');
+  if (productOnly) {
+    promptFields.product_video.value = prompts.product_video;
+  } else {
+    setPromptValues(prompts);
+  }
+}
+
+resetPromptsButton.addEventListener('click', async () => {
+  resetPromptsButton.disabled = true;
+  setError('');
+  try {
+    await loadDefaultPrompts();
+    restoredPromptJobId = null;
+  } catch (error) {
+    setError(error.message);
+  } finally {
+    resetPromptsButton.disabled = false;
+  }
+});
+
+productVideoStyle.addEventListener('change', async () => {
+  try {
+    await loadDefaultPrompts({ productOnly: true });
+  } catch (error) {
+    setError(error.message);
+  }
 });
 
 function setError(message) {
@@ -111,6 +160,10 @@ function renderFinal(job) {
 
 function renderJob(job) {
   jobLabel.textContent = job.job_id || 'Chưa có job';
+  if (job.prompts && job.job_id && restoredPromptJobId !== job.job_id) {
+    setPromptValues(job.prompts);
+    restoredPromptJobId = job.job_id;
+  }
   renderProgress(job);
   renderAssets(job);
   renderFinal(job);
@@ -129,7 +182,12 @@ async function pollJob() {
   try {
     const response = await fetch(`/api/jobs/${encodeURIComponent(currentJobId)}`, { cache: 'no-store' });
     if (!response.ok) {
-      if (response.status === 404) localStorage.removeItem('flowAffiliateJobId');
+      if (response.status === 404) {
+        localStorage.removeItem('flowAffiliateJobId');
+        currentJobId = null;
+        restoredPromptJobId = null;
+        await loadDefaultPrompts();
+      }
       return;
     }
     const job = await response.json();
@@ -156,6 +214,7 @@ form.addEventListener('submit', async (event) => {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || 'Không tạo được job');
     currentJobId = payload.job_id;
+    restoredPromptJobId = currentJobId;
     localStorage.setItem('flowAffiliateJobId', currentJobId);
     jobLabel.textContent = currentJobId;
     await pollJob();
@@ -215,4 +274,6 @@ renderProgress({ assets: {}, running: false });
 if (currentJobId) {
   jobLabel.textContent = currentJobId;
   pollJob();
+} else {
+  loadDefaultPrompts().catch((error) => setError(error.message));
 }
