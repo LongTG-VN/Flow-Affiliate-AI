@@ -168,7 +168,7 @@ def test_image_generation_never_reuses_stale_image_from_stage_directory(tmp_path
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    with pytest.raises(GFlowCliProviderError, match="no image produced"):
+    with pytest.raises(GFlowCliProviderError, match="output file was not produced"):
         provider.generate_image(
             FlowImageGenerationRequest(
                 job_id="image-stale-guard",
