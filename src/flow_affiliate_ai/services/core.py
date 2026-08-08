@@ -2,7 +2,11 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
-from flow_affiliate_ai.providers.flow.base import FlowGenerationRequest, FlowProvider
+from flow_affiliate_ai.providers.flow.base import (
+    FlowGenerationRequest,
+    FlowImageGenerationRequest,
+    FlowProvider,
+)
 from flow_affiliate_ai.providers.render.base import ClipInput, RenderManifest, RenderProvider
 from flow_affiliate_ai.providers.tts.base import TTSProvider, TTSRequest
 from flow_affiliate_ai.prompts.fashion import character_video_attempt, fallback_level
@@ -11,6 +15,35 @@ from flow_affiliate_ai.prompts.fashion import character_video_attempt, fallback_
 class FlowService:
     def __init__(self, provider: FlowProvider) -> None:
         self.provider = provider
+
+    def generate_image(
+        self,
+        *,
+        job_id: str,
+        prompt: str,
+        reference_paths: list[str],
+        output_path: str,
+        aspect_ratio: str = "9:16",
+        model: str = "nano2",
+    ):
+        if not reference_paths:
+            raise ValueError("reference_paths cannot be empty")
+        idempotency_key = hashlib.sha256(
+            (
+                f"{job_id}|{prompt}|{aspect_ratio}|{model}|"
+                + "|".join(str(Path(p).resolve()) for p in reference_paths)
+            ).encode("utf-8")
+        ).hexdigest()
+        request = FlowImageGenerationRequest(
+            job_id=job_id,
+            prompt=prompt,
+            reference_paths=reference_paths,
+            aspect_ratio=aspect_ratio,
+            model=model,
+            output_path=output_path,
+            idempotency_key=idempotency_key,
+        )
+        return self.provider.generate_image(request)
 
     def generate_video(
         self,
@@ -23,7 +56,7 @@ class FlowService:
         max_credit_cost: int = 15,
     ):
         idempotency_key = hashlib.sha256(
-            f"{job_id}|{prompt}|{image_path}|{duration_seconds}".encode()
+            f"{job_id}|{prompt}|{image_path}|{duration_seconds}".encode("utf-8")
         ).hexdigest()
         request = FlowGenerationRequest(
             job_id=job_id,
@@ -54,7 +87,7 @@ class VoiceService:
         output_directory: str,
         voice: str = "Zephyr",
     ):
-        key = hashlib.sha256(f"{job_id}|{voice}|{text}".encode()).hexdigest()
+        key = hashlib.sha256(f"{job_id}|{voice}|{text}".encode("utf-8")).hexdigest()
         return self.provider.synthesize(
             TTSRequest(
                 job_id=job_id,

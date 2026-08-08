@@ -34,6 +34,13 @@ Smooth product shot, soft lighting, realistic fabric details.""",
 }
 
 
+DEFAULT_VOICE_SCRIPT = (
+    "Mẫu này lên hình nhìn rất gọn và nữ tính. "
+    "Mình để thêm một đoạn cận cảnh để mọi người nhìn rõ thiết kế hơn. "
+    "Nếu thích phong cách nhẹ nhàng như vậy thì có thể xem thêm thông tin sản phẩm ở phần gắn kèm nha."
+)
+
+
 @dataclass(frozen=True)
 class PromptAttempt:
     level: int
