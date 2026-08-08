@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flow-affiliate-ai"
-version = "0.2.0"
+version = "0.3.0"
 description = "Fashion affiliate automation using Google Flow, TTS and FFmpeg"
 requires-python = ">=3.11"
 dependencies = []
@@ -14,15 +14,25 @@ tts = [
   "edge-tts==7.2.8",
   "google-genai>=2.10,<3",
 ]
+web = [
+  "fastapi>=0.116,<1",
+  "uvicorn>=0.35,<1",
+  "python-multipart>=0.0.20,<1",
+]
 dev = [
   "pytest>=8,<9",
+  "httpx>=0.28,<1",
 ]
 
 [project.scripts]
 flow-affiliate = "flow_affiliate_ai.cli:main"
+flow-affiliate-web = "flow_affiliate_ai.web.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"flow_affiliate_ai.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
