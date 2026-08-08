@@ -34,6 +34,7 @@ class AffiliateJobState:
     extract_attempt: int = 1
     dress_attempt: int = 1
     product_video_attempt: int = 1
+    product_video_source: str = "worn"
     error_stage: Optional[str] = None
     error_message: Optional[str] = None
     prompts: Dict[str, str] = field(default_factory=dict)
