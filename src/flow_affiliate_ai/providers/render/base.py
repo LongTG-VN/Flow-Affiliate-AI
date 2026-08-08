@@ -24,8 +24,8 @@ class RenderManifest:
     captions_ass: Optional[str] = None
     overlay_image: Optional[str] = None
     overlay_position: str = "bottom-right"
-    overlay_width_pct: float = 22.0
-    overlay_margin_px: int = 12
+    overlay_width_pct: float = 26.0
+    overlay_margin_px: int = 40
     output_path: str = ""
 
 

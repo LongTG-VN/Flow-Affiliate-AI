@@ -61,7 +61,7 @@ class WebJobConfig:
     music_track: Optional[str] = None
     overlay_image: Optional[str] = None
     overlay_position: str = "bottom-right"
-    overlay_width_pct: float = 22.0
+    overlay_width_pct: float = 26.0
     max_credit_per_video: int = 15
 
     @property
@@ -258,7 +258,7 @@ def create_app(*, data_root: Path = Path("data"), pipeline_builder: Callable[...
         product_video_style: str = Form("zoom"),
         product_video_source: str = Form("worn"),
         overlay_position: str = Form("bottom-right"),
-        overlay_width_pct: float = Form(22.0),
+        overlay_width_pct: float = Form(26.0),
         max_credit_per_video: int = Form(15),
         approve_video_credits: bool = Form(False),
     ) -> dict:

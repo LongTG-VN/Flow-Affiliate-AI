@@ -120,7 +120,7 @@ def test_dashboard_persists_sticker_and_product_source(tmp_path: Path):
             "approve_video_credits": "true",
             "product_video_source": "isolated",
             "overlay_position": "top-right",
-            "overlay_width_pct": "22",
+            "overlay_width_pct": "26",
         },
         files={
             "character": ("character.png", b"fake-character", "image/png"),
@@ -134,7 +134,7 @@ def test_dashboard_persists_sticker_and_product_source(tmp_path: Path):
     assert config is not None
     assert config.product_video_source == "isolated"
     assert config.overlay_position == "top-right"
-    assert config.overlay_width_pct == 22
+    assert config.overlay_width_pct == 26
     assert config.overlay_image is not None
     assert Path(config.overlay_image).name == "sticker.webp"
     assert Path(config.overlay_image).read_bytes() == b"fake-sticker"
@@ -146,7 +146,7 @@ def test_dashboard_persists_sticker_and_product_source(tmp_path: Path):
         "music_enabled": False,
         "overlay_enabled": True,
         "overlay_position": "top-right",
-        "overlay_width_pct": 22.0,
+        "overlay_width_pct": 26.0,
     }
 
 

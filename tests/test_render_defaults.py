@@ -31,8 +31,8 @@ def test_render_service_defaults_match_dashboard_sticker_defaults():
     assert result.status == "COMPLETED"
     assert provider.manifest is not None
     assert provider.manifest.overlay_position == "bottom-right"
-    assert provider.manifest.overlay_width_pct == 22.0
-    assert provider.manifest.overlay_margin_px == 12
+    assert provider.manifest.overlay_width_pct == 26.0
+    assert provider.manifest.overlay_margin_px == 40
 
 
 def test_cli_sticker_width_default_matches_dashboard():
@@ -48,4 +48,4 @@ def test_cli_sticker_width_default_matches_dashboard():
     )
 
     assert args.sticker_position == "bottom-right"
-    assert args.sticker_width_pct == 22.0
+    assert args.sticker_width_pct == 26.0
