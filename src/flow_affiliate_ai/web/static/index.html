@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">LOCAL CREATOR TOOL</p>
         <h1>Flow Affiliate AI</h1>
-        <p class="subtitle">Ảnh nhân vật + ảnh sản phẩm → 4 prompt → Flow → TTS → FFmpeg → video hoàn chỉnh.</p>
+        <p class="subtitle">Ảnh nhân vật + ảnh sản phẩm → 4 prompt → Flow → TTS → FFmpeg → provenance audit → video publish.</p>
       </div>
       <div id="healthBadge" class="health neutral">Chưa kiểm tra hệ thống</div>
     </header>
@@ -181,10 +181,11 @@
           <h2>Final video</h2>
         </div>
       </div>
-      <div id="finalEmpty" class="empty-state">Video hoàn chỉnh sẽ xuất hiện ở đây.</div>
+      <p id="auditSummary" class="render-note hidden"></p>
+      <div id="finalEmpty" class="empty-state">Video hoàn chỉnh sẽ xuất hiện ở đây sau bước audit.</div>
       <div id="finalWrap" class="final-wrap hidden">
         <video id="finalVideo" controls playsinline></video>
-        <a id="downloadFinal" class="primary link-button" href="#">Tải MP4</a>
+        <a id="downloadFinal" class="primary link-button" href="#">Tải MP4 publish</a>
       </div>
     </section>
   </main>
