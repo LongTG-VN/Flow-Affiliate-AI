@@ -99,6 +99,22 @@ class FfmpegRenderProvider:
             audio_sample_rate=sample_rate,
         )
 
+    def _effective_video_duration(self, manifest: RenderManifest) -> float:
+        total = 0.0
+        for clip in manifest.clips:
+            media = self.probe(Path(clip.path))
+            source_duration = max(0.0, media.duration_seconds)
+            trim_in = clip.trim_in_ms / 1000.0
+            trim_out = (
+                clip.trim_out_ms / 1000.0
+                if clip.trim_out_ms
+                else source_duration
+            )
+            total += max(0.0, min(source_duration, trim_out) - trim_in)
+        if total <= 0:
+            raise RuntimeError("render clips have zero effective duration")
+        return total
+
     def render(self, manifest: RenderManifest) -> RenderJobRef:
         validation = self.validate_inputs(manifest)
         if not validation.valid:
@@ -118,6 +134,16 @@ class FfmpegRenderProvider:
 
         temp = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.mp4")
         log_path = output.parent / f".{manifest.job_id}.ffmpeg.log"
+        try:
+            video_duration = self._effective_video_duration(manifest)
+        except Exception as exc:
+            return RenderJobRef(manifest.job_id, "FAILED", "", "", str(exc))
+
+        # Keep every audio branch finite. An unbounded `apad` can keep FFmpeg 6.x
+        # buffering after the concat video ends and eventually surface ENOSPC even
+        # though the output file itself is tiny. One second of headroom ensures the
+        # video remains the stream that decides `-shortest`.
+        audio_target = video_duration + 1.0
         cmd = [self.ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(concat)]
         voice_index = None
         music_index = None
@@ -141,18 +167,26 @@ class FfmpegRenderProvider:
             video_filters.append(f"ass=filename='{_filter_escape(Path(manifest.captions_ass))}'")
         filters = [f"[0:v]{','.join(video_filters)}[vout]"]
 
+        finite_audio = f"apad=whole_dur={audio_target:.3f},atrim=duration={audio_target:.3f}"
+        finite_stream = f"atrim=duration={audio_target:.3f}"
         if voice_index is not None and music_index is not None:
             filters += [
-                f"[{voice_index}:a]aresample=48000,apad[voice]",
-                f"[{music_index}:a]aresample=48000,volume={self.music_volume}[music]",
+                f"[{voice_index}:a]aresample=48000,{finite_audio}[voice]",
+                f"[{music_index}:a]aresample=48000,volume={self.music_volume},{finite_stream}[music]",
                 "[voice][music]amix=inputs=2:duration=longest:dropout_transition=2,alimiter=limit=0.95[aout]",
             ]
         elif voice_index is not None:
-            filters.append(f"[{voice_index}:a]aresample=48000,apad,alimiter=limit=0.95[aout]")
+            filters.append(
+                f"[{voice_index}:a]aresample=48000,{finite_audio},alimiter=limit=0.95[aout]"
+            )
         elif music_index is not None:
-            filters.append(f"[{music_index}:a]aresample=48000,volume={self.music_volume},alimiter=limit=0.95[aout]")
+            filters.append(
+                f"[{music_index}:a]aresample=48000,volume={self.music_volume},{finite_stream},alimiter=limit=0.95[aout]"
+            )
         else:
-            filters.append("[1:a]anull,alimiter=limit=0.95[aout]")
+            filters.append(
+                f"[1:a]{finite_stream},alimiter=limit=0.95[aout]"
+            )
 
         codec = {"h264": "libx264", "h265": "libx265", "hevc": "libx265"}.get(
             manifest.video_codec.lower(), manifest.video_codec
