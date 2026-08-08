@@ -26,6 +26,11 @@ def _filter_escape(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 
 
+def _tail(text: str, lines: int = 40) -> str:
+    rows = text.strip().splitlines()
+    return "\n".join(rows[-lines:])
+
+
 class FfmpegRenderProvider:
     def __init__(
         self,
@@ -112,6 +117,7 @@ class FfmpegRenderProvider:
         concat.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         temp = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.mp4")
+        log_path = output.parent / f".{manifest.job_id}.ffmpeg.log"
         cmd = [self.ffmpeg_bin, "-y", "-f", "concat", "-safe", "0", "-i", str(concat)]
         voice_index = None
         music_index = None
@@ -160,7 +166,27 @@ class FfmpegRenderProvider:
         ]
 
         try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=self.timeout_seconds)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=self.timeout_seconds,
+            )
+            log_path.write_text(
+                "COMMAND\n"
+                + " ".join(cmd)
+                + "\n\nSTDOUT\n"
+                + (result.stdout or "")
+                + "\n\nSTDERR\n"
+                + (result.stderr or ""),
+                encoding="utf-8",
+            )
+            if result.returncode != 0:
+                detail = _tail(result.stderr or result.stdout or "ffmpeg failed")
+                raise RuntimeError(
+                    f"ffmpeg failed with exit code {result.returncode}:\n{detail}"
+                )
             media = self.probe(temp)
             if not media.audio_codec:
                 raise RuntimeError("rendered master has no audio")
