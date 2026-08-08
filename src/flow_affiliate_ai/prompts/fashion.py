@@ -37,9 +37,10 @@ Smooth product shot, soft lighting, realistic fabric details.""",
 
 
 DEFAULT_VOICE_SCRIPT = (
-    "Mẫu này lên hình nhìn rất gọn và nữ tính. "
-    "Mình để thêm một đoạn cận cảnh để mọi người nhìn rõ thiết kế hơn. "
-    "Nếu thích phong cách nhẹ nhàng như vậy thì có thể xem thêm thông tin sản phẩm ở phần gắn kèm nha."
+    "Chiếc đầm này thiết kế phom dáng lên hình cực kỳ gọn gàng, thanh lịch và tôn dáng. "
+    "Chất vải mềm mại, các đường xếp ly rủ tự nhiên tạo cảm giác rất nhẹ nhàng khi di chuyển. "
+    "Mình quay thêm đoạn cận cảnh từng chi tiết chất liệu và đường may để mọi người dễ quan sát hơn nhé. "
+    "Nếu bạn yêu thích phong cách thanh lịch và nữ tính này thì đừng bỏ lỡ, bấm vào góc bên dưới để xem thêm thông tin chi tiết nha!"
 )
 
 

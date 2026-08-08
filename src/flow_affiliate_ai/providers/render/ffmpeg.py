@@ -195,8 +195,8 @@ class FfmpegRenderProvider:
 
         width, height = map(int, manifest.resolution)
         video_filters = [
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease",
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+            f"scale={width}:{height}:force_original_aspect_ratio=increase",
+            f"crop={width}:{height}",
             "setsar=1",
             f"fps={manifest.fps}",
         ]

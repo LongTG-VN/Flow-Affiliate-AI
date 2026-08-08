@@ -59,7 +59,7 @@ class WebJobConfig:
     product_video_source: str = "worn"
     overlay_image: Optional[str] = None
     overlay_position: str = "bottom-right"
-    overlay_width_pct: float = 16.0
+    overlay_width_pct: float = 22.0
     max_credit_per_video: int = 15
 
     @property
