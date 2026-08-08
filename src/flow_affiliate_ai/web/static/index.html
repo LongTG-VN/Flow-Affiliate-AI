@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flow Affiliate AI</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">LOCAL CREATOR TOOL</p>
+        <h1>Flow Affiliate AI</h1>
+        <p class="subtitle">Ảnh nhân vật + ảnh sản phẩm → Flow → TTS → FFmpeg → video hoàn chỉnh.</p>
+      </div>
+      <div id="healthBadge" class="health neutral">Chưa kiểm tra hệ thống</div>
+    </header>
+
+    <section class="panel input-panel">
+      <div class="section-head">
+        <div>
+          <span class="step-no">01</span>
+          <h2>Input</h2>
+        </div>
+        <button id="healthButton" class="secondary" type="button">Kiểm tra core</button>
+      </div>
+
+      <form id="jobForm">
+        <div class="upload-grid">
+          <label class="upload-card">
+            <span>Ảnh nhân vật</span>
+            <input id="character" name="character" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <img id="characterPreview" alt="Preview nhân vật">
+            <small>PNG / JPG / WEBP · tối đa 20 MB</small>
+          </label>
+
+          <label class="upload-card">
+            <span>Ảnh sản phẩm</span>
+            <input id="product" name="product" type="file" accept="image/png,image/jpeg,image/webp" required>
+            <img id="productPreview" alt="Preview sản phẩm">
+            <small>Flow sẽ tự tách sản phẩm bằng prompt cố định</small>
+          </label>
+        </div>
+
+        <div class="controls">
+          <label>
+            <span>TTS</span>
+            <select name="tts_provider" id="ttsProvider">
+              <option value="gemini">Gemini TTS</option>
+              <option value="edge">Edge TTS</option>
+            </select>
+          </label>
+          <label>
+            <span>Voice</span>
+            <input name="voice" value="Zephyr">
+          </label>
+          <label>
+            <span>Product shot</span>
+            <select name="product_video_style">
+              <option value="zoom">Zoom</option>
+              <option value="pan">Pan</option>
+            </select>
+          </label>
+          <label>
+            <span>Credit ceiling / video</span>
+            <input name="max_credit_per_video" type="number" min="0" max="1000" value="15">
+          </label>
+        </div>
+
+        <label class="credit-check">
+          <input id="approveCredits" name="approve_video_credits" type="checkbox" value="true" required>
+          <span>Tôi đồng ý cho hệ thống dùng Flow credits để tạo video.</span>
+        </label>
+
+        <button id="generateButton" class="primary" type="submit">Generate video</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <span class="step-no">02</span>
+          <h2>Pipeline</h2>
+        </div>
+        <span id="jobLabel" class="job-label">Chưa có job</span>
+      </div>
+
+      <div id="progressGrid" class="progress-grid"></div>
+      <div id="errorBox" class="error-box hidden"></div>
+      <button id="retryButton" class="warning hidden" type="button">Retry fallback có duyệt credit</button>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <span class="step-no">03</span>
+          <h2>Assets</h2>
+        </div>
+      </div>
+      <div id="assetGrid" class="asset-grid empty-state">Chưa có asset được tạo.</div>
+    </section>
+
+    <section class="panel final-panel">
+      <div class="section-head">
+        <div>
+          <span class="step-no">04</span>
+          <h2>Final video</h2>
+        </div>
+      </div>
+      <div id="finalEmpty" class="empty-state">Video hoàn chỉnh sẽ xuất hiện ở đây.</div>
+      <div id="finalWrap" class="final-wrap hidden">
+        <video id="finalVideo" controls playsinline></video>
+        <a id="downloadFinal" class="primary link-button" href="#">Tải MP4</a>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
