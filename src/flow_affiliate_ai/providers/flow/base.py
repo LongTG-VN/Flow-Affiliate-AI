@@ -23,9 +23,29 @@ class CostQuote:
 class ProviderCapabilities:
     supports_text_to_video: bool = True
     supports_reference_images: bool = True
+    supports_image_to_image: bool = True
     supports_exact_start_frame: bool = False
     supports_ten_second_reference_video: bool = True
     max_reference_images: int = 7
+
+
+@dataclass(frozen=True)
+class FlowImageGenerationRequest:
+    job_id: str
+    prompt: str
+    reference_paths: List[str] = field(default_factory=list)
+    aspect_ratio: str = "9:16"
+    model: str = "nano2"
+    output_path: str = ""
+    idempotency_key: str = ""
+
+
+@dataclass(frozen=True)
+class FlowImageResult:
+    job_id: str
+    status: str
+    output_path: str
+    error_message: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +80,7 @@ class ProviderJobStatus:
 class FlowProvider(Protocol):
     def capabilities(self) -> ProviderCapabilities: ...
     def health(self) -> FlowHealth: ...
+    def generate_image(self, request: FlowImageGenerationRequest) -> FlowImageResult: ...
     def estimate(self, request: FlowGenerationRequest) -> CostQuote: ...
     def submit(self, request: FlowGenerationRequest) -> ProviderJobRef: ...
     def poll(self, provider_job_id: str) -> ProviderJobStatus: ...
