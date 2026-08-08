@@ -13,6 +13,7 @@ PIPELINE_STAGES = (
     "PRODUCT_VIDEO_READY",
     "VOICE_READY",
     "RENDERED",
+    "AUDITED",
     "COMPLETED",
 )
 
@@ -30,6 +31,8 @@ class AffiliateJobState:
     voice_audio: Optional[str] = None
     captions_ass: Optional[str] = None
     final_video: Optional[str] = None
+    provenance_report: Optional[str] = None
+    publish_video: Optional[str] = None
     character_video_level: int = 3
     extract_attempt: int = 1
     dress_attempt: int = 1

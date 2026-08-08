@@ -1,10 +1,11 @@
 # Flow Affiliate AI
 
-Fashion-affiliate automation built around three reusable cores:
+Fashion-affiliate automation built around four reusable cores:
 
 1. Google Flow through `gflow-cli`
 2. Vietnamese TTS through Gemini or Edge TTS
 3. Final vertical-video rendering through FFmpeg
+4. Post-render provenance/privacy audit through FFprobe + optional `c2patool`
 
 The novel/story engine from `Movie-AI-Flow` is intentionally excluded.
 
@@ -19,6 +20,7 @@ Input:
 Output:
 
 - one completed 1080x1920 affiliate video
+- one post-render provenance/privacy report
 
 ## End-to-end pipeline
 
@@ -35,16 +37,45 @@ Flow video r2v: product detail
         ↓
 Gemini / Edge TTS
         ↓
-FFmpeg + voice + optional music/captions
+FFmpeg + voice + optional music/captions/sticker
         ↓
-final_video.mp4
+rendered master
+        ↓
+Provenance audit (FFprobe + optional c2patool)
+        ↓
+Privacy metadata sanitizer
+        ↓
+final_publish.mp4 + provenance_report.json
 ```
 
 No `rembg` dependency is required in V1. Product isolation is performed by the fixed semantic extraction prompt inside Flow.
 
+## Provenance audit and privacy sanitization
+
+V0.6 adds a post-render audit stage. It is intentionally conservative:
+
+- FFprobe inventories ordinary container/stream metadata and flags likely privacy-related tag names.
+- If `c2patool` is installed, the system reads C2PA/Content Credentials in read-only mode.
+- If C2PA is detected, or C2PA status cannot be determined, the publish file is copied byte-for-byte and metadata stripping is skipped.
+- If C2PA is confidently absent, FFmpeg removes ordinary container metadata with stream copy (`-map_metadata -1 -map_chapters -1 -c copy`).
+- Invisible AI watermark status is reported as `unknown` unless a dedicated detector is integrated. The system does not attempt to remove or defeat provenance watermarks.
+
+`c2patool` is optional. Configure a non-default binary path with:
+
+```powershell
+$env:C2PATOOL_BIN = "C:\\tools\\c2patool.exe"
+```
+
+FFmpeg/FFprobe binaries may also be overridden:
+
+```powershell
+$env:FFMPEG_BIN = "ffmpeg"
+$env:FFPROBE_BIN = "ffprobe"
+```
+
 ## Local web dashboard
 
-V0.3 adds a lightweight local FastAPI dashboard. It is intentionally bound to `127.0.0.1` and exposes only generated assets located under the configured local `data/` directory.
+The local FastAPI dashboard is intentionally bound to `127.0.0.1` and exposes only generated assets located under the configured local `data/` directory.
 
 Install web + TTS dependencies:
 
@@ -68,13 +99,14 @@ The dashboard provides:
 
 - character-image upload + preview
 - product-image upload + preview
+- optional sticker/overlay and background-music upload
 - Gemini/Edge TTS selector
 - voice and product-shot controls
 - explicit Flow-credit approval
 - live checkpoint polling
 - intermediate image/video previews
 - approved fallback retry after a failed character-video attempt
-- final video preview + MP4 download
+- final publish-ready video preview + MP4 download
 - core health check for Flow, TTS, FFmpeg and FFprobe
 
 Web jobs are serialized through one local worker so a single authenticated Flow browser session is not driven concurrently.
@@ -99,6 +131,7 @@ A paid fallback video attempt is never submitted silently. After a failure, reru
 - Google Flow access and an authenticated desktop session
 - FFmpeg + FFprobe in PATH
 - Gemini API key or Edge TTS
+- optional: `c2patool` for read-only C2PA/Content Credentials inspection
 
 Install/authenticate `gflow-cli` separately, then verify:
 
@@ -125,8 +158,8 @@ $env:GFLOW_BIN = "gflow"
 ```powershell
 flow-affiliate `
   --job-id dress-001 `
-  --character "D:\inputs\character.png" `
-  --product "D:\inputs\dress.png" `
+  --character "D:\\inputs\\character.png" `
+  --product "D:\\inputs\\dress.png" `
   --approve-video-credits
 ```
 
@@ -135,13 +168,13 @@ If the character video fails and the job records a lower fallback level, inspect
 ```powershell
 flow-affiliate `
   --job-id dress-001 `
-  --character "D:\inputs\character.png" `
-  --product "D:\inputs\dress.png" `
+  --character "D:\\inputs\\character.png" `
+  --product "D:\\inputs\\dress.png" `
   --approve-video-credits `
   --approve-paid-retry
 ```
 
-Optional arguments include `--tts edge`, `--voice`, `--product-video-style pan`, `--music`, and `--captions-ass`.
+Optional arguments include `--tts edge`, `--voice`, `--product-video-style pan`, `--music`, `--captions-ass`, and sticker options.
 
 ## Runtime workspace
 
@@ -159,23 +192,28 @@ data/
         ├── clips/
         ├── audio/
         └── renders/
-            └── final_video.mp4
+            ├── final_video.mp4          # rendered master before audit
+            ├── final_publish.mp4        # publish-ready output
+            └── provenance_report.json   # metadata/C2PA audit report
 ```
+
+After the provenance stage, the job state's `final_video` field points at `final_publish.mp4` so the existing web download continues to serve the publish-ready output. The untouched rendered master path is retained in `state.metadata.rendered_master`.
 
 ## Package layout
 
 ```text
 src/flow_affiliate_ai/
 ├── providers/
+│   ├── audit/            # FFprobe/C2PA read-only audit + safe metadata sanitizer
 │   ├── flow/             # gflow-cli image/video adapter
 │   ├── tts/              # Gemini + Edge TTS
 │   └── render/           # FFmpeg renderer
 ├── prompts/              # fixed fashion prompts + L3/L2/L1 fallback
-├── services/             # thin reusable service layer
+├── services/             # reusable service layer + provenance wrapper
 ├── web/                  # FastAPI + static local dashboard
 ├── jobs.py               # durable job checkpoints
-├── pipeline.py           # end-to-end orchestration
-└── cli.py                # flow-affiliate command
+├── pipeline.py           # core generation orchestration
+└── cli.py                # flow-affiliate command + audited pipeline builder
 ```
 
 ## Tests
@@ -184,7 +222,7 @@ src/flow_affiliate_ai/
 pytest -q
 ```
 
-CI installs the web dependencies and tests the dashboard routes, upload validation, and the rule that asset delivery cannot escape the local `data/` directory. Pipeline tests use fake providers and do not consume Flow credits.
+CI installs the web dependencies and FFmpeg, tests the dashboard routes, upload validation, render pipeline, metadata sanitizer safety rules, and the rule that asset delivery cannot escape the local `data/` directory. Pipeline tests use fake providers and do not consume Flow credits.
 
 ## gflow-cli note
 

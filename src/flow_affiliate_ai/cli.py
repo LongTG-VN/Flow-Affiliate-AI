@@ -8,14 +8,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from flow_affiliate_ai.pipeline import AffiliatePipeline
+from flow_affiliate_ai.providers.audit.local import (
+    LocalProvenanceAuditor,
+    PrivacyMetadataSanitizer,
+)
 from flow_affiliate_ai.providers.flow.gflow_cli import GFlowCliProvider
 from flow_affiliate_ai.providers.render.ffmpeg import FfmpegRenderProvider
 from flow_affiliate_ai.providers.tts.edge_tts import EdgeTtsProvider
 from flow_affiliate_ai.providers.tts.gemini_tts import GeminiTtsProvider
 from flow_affiliate_ai.services.core import FlowService, RenderService, VoiceService
+from flow_affiliate_ai.services.provenance import (
+    ProvenancePipelineWrapper,
+    ProvenanceService,
+)
 
 
-def build_pipeline(*, tts_provider: str, data_root: Path) -> AffiliatePipeline:
+def build_pipeline(*, tts_provider: str, data_root: Path) -> ProvenancePipelineWrapper:
+    ffmpeg_bin = os.getenv("FFMPEG_BIN", "ffmpeg")
+    ffprobe_bin = os.getenv("FFPROBE_BIN", "ffprobe")
     flow = FlowService(
         GFlowCliProvider(
             gflow_bin=os.getenv("GFLOW_BIN", "gflow"),
@@ -28,11 +38,28 @@ def build_pipeline(*, tts_provider: str, data_root: Path) -> AffiliatePipeline:
     else:
         tts = GeminiTtsProvider()
     voice = VoiceService(tts)
-    render = RenderService(FfmpegRenderProvider())
-    return AffiliatePipeline(
+    render = RenderService(
+        FfmpegRenderProvider(
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+        )
+    )
+    core = AffiliatePipeline(
         flow=flow,
         voice=voice,
         render=render,
+        data_root=data_root,
+    )
+    provenance = ProvenanceService(
+        auditor=LocalProvenanceAuditor(
+            ffprobe_bin=ffprobe_bin,
+            c2patool_bin=os.getenv("C2PATOOL_BIN", "c2patool"),
+        ),
+        sanitizer=PrivacyMetadataSanitizer(ffmpeg_bin=ffmpeg_bin),
+    )
+    return ProvenancePipelineWrapper(
+        pipeline=core,
+        provenance=provenance,
         data_root=data_root,
     )
 
