@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flow Affiliate Factory</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color-scheme: dark; }
+    body { margin: 0; background: #0b0d10; color: #f5f7fa; }
+    main { width: min(1100px, calc(100% - 32px)); margin: 32px auto 80px; }
+    h1 { margin-bottom: 6px; }
+    .muted { color: #9da7b3; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .card { background: #15191f; border: 1px solid #2a313b; border-radius: 14px; padding: 16px; margin-top: 14px; }
+    label { display: block; font-weight: 650; margin-bottom: 8px; }
+    input, select, button { width: 100%; box-sizing: border-box; border-radius: 10px; border: 1px solid #39424e; background: #0f1318; color: #f5f7fa; padding: 11px 12px; }
+    button { cursor: pointer; background: #f5f7fa; color: #11151a; font-weight: 750; border: 0; }
+    button.secondary { background: #252c35; color: #f5f7fa; }
+    button:disabled { opacity: .5; cursor: wait; }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .status { font-family: ui-monospace, SFMono-Regular, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .shot { border-top: 1px solid #2a313b; padding: 12px 0; }
+    .shot:first-child { border-top: 0; }
+    .pill { display: inline-block; padding: 3px 8px; margin-right: 6px; border-radius: 999px; background: #252c35; font-size: 12px; }
+    video, img { max-width: 100%; border-radius: 12px; background: #050607; }
+    #result video { max-height: 640px; }
+    .hidden { display: none; }
+    @media (max-width: 760px) { .grid, .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Flow Affiliate Factory</h1>
+  <div class="muted">3 input → ChatGPT lên shot plan → Flow render N clip → FFmpeg ghép + logo.</div>
+
+  <form id="create-form" class="card">
+    <div class="grid">
+      <div><label>1. Ảnh người mẫu</label><input name="model" type="file" accept="image/png,image/jpeg,image/webp" required /></div>
+      <div><label>2. Ảnh sản phẩm</label><input name="product" type="file" accept="image/png,image/jpeg,image/webp" required /></div>
+      <div><label>3. Logo</label><input name="logo" type="file" accept="image/png,image/jpeg,image/webp" required /></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div><label>Job ID (tuỳ chọn)</label><input name="job_id" placeholder="dress-001" /></div>
+      <div><label>Max credit / video</label><input name="max_credit_per_video" type="number" min="0" value="15" /></div>
+      <div><label>Logo width %</label><input name="overlay_width_pct" type="number" min="1" max="50" step="0.5" value="14" /></div>
+    </div>
+    <button id="plan-button" type="submit" style="margin-top:14px">Create Plan</button>
+  </form>
+
+  <section id="progress" class="card hidden">
+    <h2>Job</h2>
+    <div id="job-status" class="status"></div>
+  </section>
+
+  <section id="plan" class="card hidden">
+    <h2>Shot plan</h2>
+    <div id="plan-summary"></div>
+    <div id="shots"></div>
+    <button id="approve-button" type="button">Approve & Generate</button>
+    <button id="retry-button" class="secondary hidden" type="button" style="margin-top:8px">Approve paid retry</button>
+  </section>
+
+  <section id="result" class="card hidden">
+    <h2>Final video</h2>
+    <video id="final-video" controls playsinline></video>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
