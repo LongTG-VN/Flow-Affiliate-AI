@@ -2,16 +2,21 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 
 PIPELINE_STAGES = (
     "INPUT_READY",
     "PRODUCT_EXTRACTED",
+    "PLANNING",
+    "PLAN_READY",
     "CHARACTER_DRESSED",
+    "SHOT_RENDERING",
+    "SHOTS_READY",
     "CHARACTER_VIDEO_READY",
     "PRODUCT_VIDEO_READY",
     "VOICE_READY",
+    "FINAL_RENDERING",
     "RENDERED",
     "AUDITED",
     "COMPLETED",
@@ -24,7 +29,16 @@ class AffiliateJobState:
     character_image: str
     product_image: str
     status: str = "INPUT_READY"
+    # Dynamic factory fields are optional so existing V1 checkpoint JSON files
+    # remain loadable without migration.
+    logo_image: Optional[str] = None
     isolated_product_image: Optional[str] = None
+    canonical_worn_image: Optional[str] = None
+    shot_plan: Dict[str, Any] = field(default_factory=dict)
+    shot_plan_raw: Optional[str] = None
+    shot_results: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    planner_attempt: int = 1
+    # Legacy V1 fields kept intact for backward compatibility.
     character_wear_image: Optional[str] = None
     character_video: Optional[str] = None
     product_video: Optional[str] = None
@@ -41,7 +55,7 @@ class AffiliateJobState:
     error_stage: Optional[str] = None
     error_message: Optional[str] = None
     prompts: Dict[str, str] = field(default_factory=dict)
-    metadata: Dict[str, str] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class JobStore:
