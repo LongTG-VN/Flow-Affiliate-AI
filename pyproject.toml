@@ -32,6 +32,7 @@ dev = [
 [project.scripts]
 flow-affiliate = "flow_affiliate_ai.cli:main"
 flow-affiliate-factory = "flow_affiliate_ai.factory_cli:main"
+flow-affiliate-factory-web = "flow_affiliate_ai.factory_web.app:main"
 flow-affiliate-web = "flow_affiliate_ai.web.app:main"
 
 [tool.setuptools.packages.find]
@@ -39,6 +40,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "flow_affiliate_ai.web" = ["static/*"]
+"flow_affiliate_ai.factory_web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
