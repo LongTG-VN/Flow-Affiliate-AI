@@ -51,11 +51,19 @@ The planner JSON is validated before any paid Flow video is submitted. The plan 
 
 ## Install
 
+For the CLI only:
+
 ```powershell
 pip install -e ".[planner]"
 ```
 
-The existing web/TTS extras may be installed as needed:
+For the local three-input dashboard:
+
+```powershell
+pip install -e ".[planner,web]"
+```
+
+Development / legacy extras may be installed as needed:
 
 ```powershell
 pip install -e ".[planner,web,tts,dev]"
@@ -68,11 +76,39 @@ $env:OPENAI_API_KEY = "YOUR_KEY"
 $env:OPENAI_PLANNER_MODEL = "gpt-5.6-luna"
 $env:GFLOW_BIN = "gflow"
 $env:GFLOW_PROFILE = "default"
+$env:FLOW_FACTORY_PORT = "8010"
 ```
 
-OpenAI API billing is separate from Google Flow credits. The OpenAI call is used only to create the shot plan; Flow remains responsible for image/video generation.
+OpenAI is used only to create the shot plan; Google Flow remains responsible for image/video generation.
 
-## Plan first
+## Local dashboard — recommended
+
+Start the factory dashboard:
+
+```powershell
+flow-affiliate-factory-web
+```
+
+Open:
+
+```text
+http://127.0.0.1:8010
+```
+
+The dashboard follows the intended V1 workflow:
+
+1. Upload the model image, product image and logo.
+2. Click **Create Plan**.
+3. The system isolates the product, asks ChatGPT for a strict shot plan, creates the canonical worn-model image and estimates Flow video credits.
+4. Review the planned shot count, durations, prompts and estimated credits.
+5. Click **Approve & Generate**.
+6. Flow generates each shot sequentially with per-shot checkpoints.
+7. FFmpeg combines the clips in `edit_sequence` order and overlays the original logo.
+8. Preview the resulting `final_video.mp4` in the dashboard.
+
+If a paid Flow shot fails, completed shots remain checkpointed. The dashboard exposes an explicit paid-retry action rather than silently resubmitting the failed shot.
+
+## Plan first — CLI
 
 Run without video-credit approval:
 
@@ -94,7 +130,7 @@ The pipeline will:
 
 Inspect `metadata.estimated_total_credits` and `shot_plan` in the printed job state.
 
-## Approve and render
+## Approve and render — CLI
 
 Rerun the same job with the same three inputs:
 
@@ -131,6 +167,8 @@ Only the failed/missing shots are submitted again. Already completed Flow videos
 
 ```text
 data/
+├── factory_jobs/
+│   └── <job-id>.json
 ├── jobs/
 │   └── <job-id>.json
 ├── gflow_jobs/
