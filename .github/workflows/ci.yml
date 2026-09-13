@@ -23,6 +23,8 @@ jobs:
       - name: Compile Python
         run: python -m compileall -q src
       - name: Check dashboard JavaScript
-        run: node --check src/flow_affiliate_ai/web/static/app.js
+        run: |
+          node --check src/flow_affiliate_ai/web/static/app.js
+          node --check src/flow_affiliate_ai/factory_web/static/app.js
       - name: Test full safe suite
         run: pytest -q

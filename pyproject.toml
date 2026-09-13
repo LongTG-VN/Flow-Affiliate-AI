@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flow-affiliate-ai"
-version = "0.6.0"
-description = "Fashion affiliate automation using Google Flow, TTS, FFmpeg and provenance auditing"
+version = "0.7.0"
+description = "Fashion affiliate automation using Google Flow, dynamic AI shot planning, FFmpeg and provenance auditing"
 requires-python = ">=3.11"
 dependencies = [
   "python-dotenv>=1,<2",
@@ -15,6 +15,9 @@ dependencies = [
 tts = [
   "edge-tts==7.2.8",
   "google-genai>=2.10,<3",
+]
+planner = [
+  "openai>=2,<3",
 ]
 web = [
   "fastapi>=0.116,<1",
@@ -28,6 +31,8 @@ dev = [
 
 [project.scripts]
 flow-affiliate = "flow_affiliate_ai.cli:main"
+flow-affiliate-factory = "flow_affiliate_ai.factory_cli:main"
+flow-affiliate-factory-web = "flow_affiliate_ai.factory_web.app:main"
 flow-affiliate-web = "flow_affiliate_ai.web.app:main"
 
 [tool.setuptools.packages.find]
@@ -35,6 +40,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "flow_affiliate_ai.web" = ["static/*"]
+"flow_affiliate_ai.factory_web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

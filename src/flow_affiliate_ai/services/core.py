@@ -45,6 +45,49 @@ class FlowService:
         )
         return self.provider.generate_image(request)
 
+    def _video_request(
+        self,
+        *,
+        job_id: str,
+        prompt: str,
+        image_path: Optional[str],
+        duration_seconds: int,
+        output_directory: str,
+        max_credit_cost: int,
+    ) -> FlowGenerationRequest:
+        idempotency_key = hashlib.sha256(
+            f"{job_id}|{prompt}|{image_path}|{duration_seconds}".encode("utf-8")
+        ).hexdigest()
+        return FlowGenerationRequest(
+            job_id=job_id,
+            prompt=prompt,
+            duration_seconds=duration_seconds,
+            output_directory=output_directory,
+            max_credit_cost=max_credit_cost,
+            idempotency_key=idempotency_key,
+            reference_paths=[image_path] if image_path else [],
+        )
+
+    def estimate_video(
+        self,
+        *,
+        job_id: str,
+        prompt: str,
+        image_path: Optional[str],
+        duration_seconds: int,
+        output_directory: str,
+        max_credit_cost: int = 15,
+    ):
+        request = self._video_request(
+            job_id=job_id,
+            prompt=prompt,
+            image_path=image_path,
+            duration_seconds=duration_seconds,
+            output_directory=output_directory,
+            max_credit_cost=max_credit_cost,
+        )
+        return self.provider.estimate(request)
+
     def generate_video(
         self,
         *,
@@ -55,17 +98,13 @@ class FlowService:
         output_directory: str,
         max_credit_cost: int = 15,
     ):
-        idempotency_key = hashlib.sha256(
-            f"{job_id}|{prompt}|{image_path}|{duration_seconds}".encode("utf-8")
-        ).hexdigest()
-        request = FlowGenerationRequest(
+        request = self._video_request(
             job_id=job_id,
             prompt=prompt,
+            image_path=image_path,
             duration_seconds=duration_seconds,
             output_directory=output_directory,
             max_credit_cost=max_credit_cost,
-            idempotency_key=idempotency_key,
-            reference_paths=[image_path] if image_path else [],
         )
         return self.provider.submit(request)
 
